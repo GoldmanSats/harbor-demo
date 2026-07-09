@@ -1,0 +1,15 @@
+node_modules/
+.npm-cache/
+dist/
+build/
+.env
+.env.local
+*.db
+*.db-journal
+data/
+.DS_Store
+coverage/
+.vite/
+infra/regtest-data/
+*.log
+.turbo/
