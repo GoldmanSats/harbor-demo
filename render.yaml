@@ -6,12 +6,14 @@ services:
     runtime: node
     plan: free
     region: oregon
-    buildCommand: npm ci && npm run build
+    # --include=dev is required: Render sets NODE_ENV=production for the
+    # service, which would otherwise make npm ci skip TypeScript/Vite.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
-      - key: NODE_ENV
-        value: production
+      - key: NODE_VERSION
+        value: "22"
       - key: HARBOR_HOSTED
         value: "1"
       - key: HARBOR_BITCOIN
@@ -20,5 +22,3 @@ services:
         value: "1"
       - key: HARBOR_DB_PATH
         value: /tmp/harbor/harbor.db
-      - key: NODE_VERSION
-        value: "22"

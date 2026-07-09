@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "build": "npm run build -w server && npm run build -w web",
-    "start": "NODE_ENV=production HARBOR_HOSTED=1 HARBOR_BITCOIN=mock HARBOR_SERVE_WEB=1 node server/dist/index.js",
+    "start": "node server/dist/index.js",
+    "start:local": "NODE_ENV=production HARBOR_HOSTED=1 HARBOR_BITCOIN=mock HARBOR_SERVE_WEB=1 node server/dist/index.js",
     "dev": "concurrently -n server,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
     "demo": "tsx scripts/demo.ts",
     "simulate-donor": "tsx scripts/simulate-donor.ts",

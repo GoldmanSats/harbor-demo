@@ -31,10 +31,10 @@ Free-tier services may sleep after idle time; the first request after sleep can 
 1. **New** → **Web Service** → select **GoldmanSats/harbor-demo**.
 2. Settings:
    - **Runtime:** Node
-   - **Build command:** `npm ci && npm run build`
+   - **Build command:** `npm ci --include=dev && npm run build`
    - **Start command:** `npm start`
    - **Instance type:** Free
-3. Environment variables (or rely on `npm start`, which sets most of these):
+3. Environment variables:
 
    | Key | Value |
    |-----|--------|
@@ -44,6 +44,10 @@ Free-tier services may sleep after idle time; the first request after sleep can 
    | `HARBOR_BITCOIN` | `mock` |
    | `HARBOR_SERVE_WEB` | `1` |
    | `HARBOR_DB_PATH` | `/tmp/harbor/harbor.db` |
+
+   Important: if you set `NODE_ENV=production` as a service env var, the **build**
+   command must use `npm ci --include=dev` (otherwise TypeScript/Vite are skipped
+   and the build fails).
 
 4. Deploy and open the public URL.
 
@@ -61,7 +65,7 @@ Then open http://localhost:3001/donate
 ```bash
 npm ci
 npm run build
-npm start
+npm run start:local
 ```
 
 Open http://127.0.0.1:3001/donate (single process — no Vite).

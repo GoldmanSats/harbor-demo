@@ -29,10 +29,16 @@ npm run simulate-donor
 
 ```bash
 npm run build
-npm start
+npm run start:local
 ```
 
 Then open http://127.0.0.1:3001/donate
+
+Or for a Render-like start (env defaults applied in `server/src/index.ts` when `NODE_ENV=production`):
+
+```bash
+NODE_ENV=production npm start
+```
 
 ### Hosted demo
 
