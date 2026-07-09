@@ -2,20 +2,21 @@
 
 This guide puts the **simulated** Harbor demo on a public URL. Fake money only — visitors can try the donor page and dashboard without installing anything.
 
+**Repository:** [https://github.com/GoldmanSats/harbor-demo](https://github.com/GoldmanSats/harbor-demo)
+
 ## Prerequisites
 
-1. A free [GitHub](https://github.com) account (the code is already in a repo once you push).
+1. Access to the GitHub repo above (already pushed).
 2. A free [Render](https://render.com) account (sign up with GitHub is easiest).
 
 ## Option A — Render Blueprint (recommended)
 
-1. Push this repository to GitHub (if it is not already public/private on your account).
-2. Open [https://dashboard.render.com](https://dashboard.render.com) and sign in.
-3. Click **New** → **Blueprint**.
-4. Connect the Harbor GitHub repository when prompted.
-5. Render reads [`render.yaml`](./render.yaml) and proposes a web service named `harbor-demo`.
-6. Click **Apply** / **Deploy**.
-7. Wait for the build to finish (a few minutes on the free tier). Open the service URL Render assigns (something like `https://harbor-demo.onrender.com`).
+1. Open [https://dashboard.render.com](https://dashboard.render.com) and sign in with GitHub.
+2. Click **New** → **Blueprint**.
+3. Select the **GoldmanSats/harbor-demo** repository when prompted (authorize Render if asked).
+4. Render reads [`render.yaml`](./render.yaml) and proposes a web service named `harbor-demo`.
+5. Click **Apply** / **Deploy**.
+6. Wait for the build to finish (a few minutes on the free tier). Open the service URL Render assigns (something like `https://harbor-demo.onrender.com`).
 
 You should see:
 
@@ -27,7 +28,7 @@ Free-tier services may sleep after idle time; the first request after sleep can 
 
 ## Option B — Render “New Web Service” (manual)
 
-1. **New** → **Web Service** → select the Harbor repo.
+1. **New** → **Web Service** → select **GoldmanSats/harbor-demo**.
 2. Settings:
    - **Runtime:** Node
    - **Build command:** `npm ci && npm run build`
