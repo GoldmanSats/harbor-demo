@@ -122,6 +122,22 @@ export function updateAccountXpub(accountXpub: string | null, resetAddresses = t
   });
 }
 
+export type XpubPreviewPayload = {
+  ok: true;
+  normalized: string;
+  depth: number;
+  previewAddresses: string[];
+  network: HarborNetwork;
+};
+
+/** Validate an xpub and return the first 3 addresses without saving. */
+export function previewAccountXpub(accountXpub: string) {
+  return api<XpubPreviewPayload>("/api/settings/xpub/preview", {
+    method: "POST",
+    body: JSON.stringify({ accountXpub }),
+  });
+}
+
 export function simulateDonation(amountSats?: number) {
   return api<{
     ok: boolean;

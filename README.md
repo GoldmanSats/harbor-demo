@@ -56,10 +56,12 @@ Follow [DEPLOY.md](./DEPLOY.md) to put this on Render (or run the included Docke
 HARBOR_NETWORK=signet npm run dev
 ```
 
-4. Open the dashboard → **Connect your wallet** → paste the xpub → confirm the three shown addresses match Sparrow receive #0–#2 → save.
+4. Open the dashboard → **Connect your wallet** → paste the xpub → **Preview addresses** → confirm they match Sparrow receive #0–#2 → **Save wallet**.
 5. Get signet coins from a public faucet; open `/donate`, enter an above-threshold amount, and send to the issued `tb1p…` address from Sparrow (or any wallet).
 6. Within ~30s the donation should appear **pending**; after a signet block (~10 min) it becomes **confirmed**, with an explorer link. Balance is spendable only in your Sparrow wallet.
 7. Send a dust amount below the threshold — it should **quarantine** and never count toward cold storage.
+
+On-chain donation addresses are not issued on signet until an organization xpub is saved (HTTP 409 otherwise).
 
 ## Verify gate
 

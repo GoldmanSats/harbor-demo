@@ -42,6 +42,10 @@ const settingsPutSchema = z
     message: "Provide thresholdSats and/or accountXpub",
   });
 
+const xpubPreviewSchema = z.object({
+  accountXpub: z.string().min(1),
+});
+
 const simulateSchema = z.object({
   amountSats: z.number().int().positive().optional(),
   address: z.string().optional(),
@@ -102,6 +106,26 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
 
   app.get("/api/settings", async () => settingsResponse(db, network, defaultAccountXpub));
 
+  /** Validate an xpub and return the first 3 receive addresses without persisting. */
+  app.post("/api/settings/xpub/preview", async (req, reply) => {
+    const parsed = xpubPreviewSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "accountXpub is required" });
+    }
+    try {
+      const validated = validateAccountXpub(parsed.data.accountXpub, derivationNetwork, 3);
+      return {
+        ok: true,
+        normalized: validated.normalized,
+        depth: validated.depth,
+        previewAddresses: validated.previewAddresses,
+        network,
+      };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
   app.put("/api/settings", async (req, reply) => {
     const parsed = settingsPutSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -127,11 +151,9 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
         const prev = getSettings(db).accountXpub;
         const changed = prev !== validated.normalized;
         setAccountXpub(db, validated.normalized);
-        // Changing (or first-saving over demo-issued addresses) resets the registry.
-        if (
-          parsed.data.resetAddresses === true ||
-          (changed && (prev !== null || listIssuedAddresses(db).length > 0))
-        ) {
+        // Reset only when the normalized key actually changes (never on same-xpub re-save,
+        // even if the client sends resetAddresses: true).
+        if (changed && (prev !== null || listIssuedAddresses(db).length > 0)) {
           clearAddressRegistry(db, true);
         }
       }
@@ -160,6 +182,13 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
         message:
           "Lightning / e-cash rail (preview). In production this settles into the org's federation wallet.",
       };
+    }
+
+    if (network === "signet" && !settings.accountXpub) {
+      return reply.code(409).send({
+        error:
+          "Connect your organization wallet xpub on the dashboard before issuing signet donation addresses.",
+      });
     }
 
     const accountXpub = resolveAccountXpub(db, defaultAccountXpub);

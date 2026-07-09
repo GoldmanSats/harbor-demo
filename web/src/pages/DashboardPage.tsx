@@ -4,6 +4,7 @@ import {
   fetchDonations,
   formatSats,
   formatUsd,
+  previewAccountXpub,
   simulateDonation,
   updateAccountXpub,
   updateThreshold,
@@ -30,6 +31,7 @@ export function DashboardPage({
   const [error, setError] = useState<string | null>(null);
   const [thresholdInput, setThresholdInput] = useState("");
   const [xpubInput, setXpubInput] = useState("");
+  const [draftPreview, setDraftPreview] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [walletMsg, setWalletMsg] = useState<string | null>(null);
 
@@ -55,6 +57,8 @@ export function DashboardPage({
     const id = setInterval(() => void refresh(), network === "signet" ? 10_000 : 3000);
     const onReset = () => {
       setXpubInput("");
+      setDraftPreview(null);
+      setWalletMsg(null);
       void refresh();
     };
     window.addEventListener("harbor:demo-reset", onReset);
@@ -76,26 +80,47 @@ export function DashboardPage({
     }
   }
 
+  async function onPreviewXpub() {
+    const trimmed = xpubInput.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    setWalletMsg(null);
+    setDraftPreview(null);
+    try {
+      const res = await previewAccountXpub(trimmed);
+      setDraftPreview(res.previewAddresses);
+      setWalletMsg(
+        "Compare these addresses with Sparrow receive #0–#2. If they match, click Save wallet.",
+      );
+    } catch (err) {
+      setWalletMsg((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onSaveXpub() {
     const trimmed = xpubInput.trim();
     if (!trimmed) return;
-    const changing = Boolean(data?.settings.accountXpub) && data?.settings.accountXpub !== trimmed;
+    if (!draftPreview || draftPreview.length === 0) {
+      setWalletMsg("Preview addresses first and confirm they match Sparrow before saving.");
+      return;
+    }
+    const saved = data?.settings.accountXpub;
+    const changing = Boolean(saved) && saved !== trimmed;
     if (changing) {
       const ok = window.confirm(
         "Changing the xpub will clear issued addresses and the donation ledger. Continue?",
       );
       if (!ok) return;
-    } else if (data?.settings.usingDemoXpub) {
-      // First connect — warn if demo addresses already exist (server resets them).
     }
     setBusy(true);
     setWalletMsg(null);
     try {
       const res = await updateAccountXpub(trimmed, true);
-      setWalletMsg(
-        `Wallet connected. Verify these match Sparrow receive #0–#2 before accepting donations.`,
-      );
+      setWalletMsg("Wallet connected. Harbor will derive donation addresses from this xpub only.");
       setXpubInput(res.accountXpub ?? trimmed);
+      setDraftPreview(null);
       await refresh();
     } catch (err) {
       setWalletMsg((err as Error).message);
@@ -115,8 +140,10 @@ export function DashboardPage({
   }
 
   const summary = data?.summary;
-  const preview = data?.settings.previewAddresses ?? [];
+  const savedPreview = data?.settings.previewAddresses ?? [];
+  const preview = draftPreview ?? (data?.settings.usingDemoXpub ? [] : savedPreview);
   const activeNetwork = data?.settings.network ?? network;
+  const showingDraft = draftPreview !== null;
 
   return (
     <div>
@@ -141,24 +168,43 @@ export function DashboardPage({
         <strong>Connect your wallet</strong>
         <p className="muted" style={{ marginTop: 8 }}>
           Paste the account xpub from Sparrow (signet taproot — often{" "}
-          <span className="mono">tpub</span> / <span className="mono">vpub</span>). Harbor shows
-          the first three receive addresses so you can verify they match Sparrow before saving.
+          <span className="mono">tpub</span> / <span className="mono">vpub</span>). Preview the
+          first three receive addresses and confirm they match Sparrow <em>before</em> saving.
         </p>
         <textarea
           className="input"
           value={xpubInput}
-          onChange={(e) => setXpubInput(e.target.value)}
+          onChange={(e) => {
+            setXpubInput(e.target.value);
+            setDraftPreview(null);
+            setWalletMsg(null);
+          }}
           placeholder="xpub… / tpub… / vpub…"
           rows={3}
           style={{ width: "100%", minWidth: 0, fontFamily: "inherit", resize: "vertical" }}
           aria-label="Account xpub"
         />
         <div className="row" style={{ marginTop: 10 }}>
-          <button type="button" className="btn" disabled={busy || !xpubInput.trim()} onClick={onSaveXpub}>
-            Save &amp; verify
+          <button
+            type="button"
+            className="btn secondary"
+            disabled={busy || !xpubInput.trim()}
+            onClick={onPreviewXpub}
+          >
+            Preview addresses
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || !xpubInput.trim() || !draftPreview}
+            onClick={onSaveXpub}
+          >
+            Save wallet
           </button>
           {data?.settings.usingDemoXpub ? (
-            <span className="pill warning">using demo xpub</span>
+            <span className="pill warning">
+              {activeNetwork === "signet" ? "wallet required" : "using demo xpub"}
+            </span>
           ) : (
             <span className="pill success">org xpub saved</span>
           )}
@@ -166,7 +212,9 @@ export function DashboardPage({
         {preview.length > 0 && (
           <div style={{ marginTop: 12 }}>
             <div className="muted" style={{ marginBottom: 6 }}>
-              First 3 receive addresses — confirm these match Sparrow:
+              {showingDraft
+                ? "Draft preview — confirm these match Sparrow before saving:"
+                : "Saved wallet — first 3 receive addresses:"}
             </div>
             <ol className="mono" style={{ margin: 0, paddingLeft: 20, fontSize: "0.85rem" }}>
               {preview.map((addr) => (
@@ -286,7 +334,7 @@ export function DashboardPage({
                 <td colSpan={6} className="muted">
                   {demoTools
                     ? "No donations yet. Use Simulate on this page or the donor page."
-                    : "No donations yet. Send signet coins to an issued address."}
+                    : "No donations yet. Connect a wallet, then send signet coins to an issued address."}
                 </td>
               </tr>
             )}
