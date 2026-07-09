@@ -1,7 +1,9 @@
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import { openDatabase } from "./db/schema.js";
 import { registerRoutes } from "./routes/api.js";
 import { HttpBitcoinRpc } from "./bitcoin/rpc.js";
@@ -23,17 +25,52 @@ export type HarborApp = {
   stop: () => Promise<void>;
 };
 
+function shouldServeWeb(): boolean {
+  return (
+    process.env.HARBOR_SERVE_WEB === "1" ||
+    process.env.NODE_ENV === "production" ||
+    process.env.HARBOR_HOSTED === "1"
+  );
+}
+
+function isHostedMode(): boolean {
+  return (
+    process.env.HARBOR_HOSTED === "1" ||
+    process.env.NODE_ENV === "production" ||
+    process.env.RENDER === "true"
+  );
+}
+
+function resolveWebDist(): string | null {
+  const candidates = [
+    process.env.HARBOR_WEB_DIST,
+    path.join(path.resolve(__dirname, "../../.."), "web", "dist"),
+    path.join(path.resolve(__dirname, "../.."), "web", "dist"),
+    path.join(path.resolve(__dirname, ".."), "public"),
+  ].filter(Boolean) as string[];
+
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, "index.html"))) return dir;
+  }
+  return null;
+}
+
 export async function createApp(options: {
   dbPath?: string;
   rpc?: BitcoinRpc;
   port?: number;
   host?: string;
   listen?: boolean;
+  serveWeb?: boolean;
+  webDist?: string;
 } = {}): Promise<HarborApp> {
+  const defaultDbDir = isHostedMode()
+    ? path.join("/tmp", "harbor")
+    : path.join(path.resolve(__dirname, "../../.."), "data");
   const dbPath =
     options.dbPath ??
     process.env.HARBOR_DB_PATH ??
-    path.join(path.resolve(__dirname, "../../.."), "data", "harbor.db");
+    path.join(defaultDbDir, "harbor.db");
   const db = openDatabase(dbPath);
 
   const rpc = options.rpc ?? (await connectBitcoin());
@@ -50,11 +87,35 @@ export async function createApp(options: {
     accountXpub: process.env.HARBOR_XPUB ?? DEMO_ACCOUNT_XPUB,
   });
 
+  const serveWeb = options.serveWeb ?? shouldServeWeb();
+  if (serveWeb) {
+    const webDist = options.webDist ?? resolveWebDist();
+    if (!webDist) {
+      throw new Error(
+        "HARBOR_SERVE_WEB/production mode requires web/dist (run npm run build first)",
+      );
+    }
+    await app.register(fastifyStatic, {
+      root: webDist,
+      prefix: "/",
+      wildcard: false,
+    });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith("/api")) {
+        return reply.code(404).send({ error: "Not found" });
+      }
+      return reply.sendFile("index.html");
+    });
+  }
+
   const poller = startPoller(db, rpc, rateProvider, POLL_INTERVAL_MS);
 
   if (options.listen !== false) {
     const port = options.port ?? Number(process.env.PORT ?? 3001);
-    const host = options.host ?? "127.0.0.1";
+    const host =
+      options.host ??
+      process.env.HOST ??
+      (isHostedMode() || serveWeb ? "0.0.0.0" : "127.0.0.1");
     await app.listen({ port, host });
   }
 
@@ -71,6 +132,12 @@ export async function createApp(options: {
 }
 
 async function connectBitcoin(): Promise<BitcoinRpc> {
+  // Hosted / production demos always use the in-process mock (fake money).
+  if (isHostedMode() || process.env.HARBOR_BITCOIN === "mock") {
+    console.log("[harbor] Using in-process mock Bitcoin RPC");
+    return new MockBitcoinRpc();
+  }
+
   const mode = process.env.HARBOR_BITCOIN ?? "auto";
   if (mode === "mock") {
     console.log("[harbor] Using in-process mock Bitcoin RPC");
@@ -152,4 +219,4 @@ async function ensureWatchOnlyWallet(rpc: HttpBitcoinRpc): Promise<void> {
   }
 }
 
-export { DEMO_ACCOUNT_XPUB, MOCK_BTC_USD };
+export { DEMO_ACCOUNT_XPUB, MOCK_BTC_USD, isHostedMode, shouldServeWeb, resolveWebDist };

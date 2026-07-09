@@ -35,7 +35,12 @@ export function DashboardPage() {
   useEffect(() => {
     void refresh();
     const id = setInterval(() => void refresh(), 3000);
-    return () => clearInterval(id);
+    const onReset = () => void refresh();
+    window.addEventListener("harbor:demo-reset", onReset);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("harbor:demo-reset", onReset);
+    };
   }, [refresh]);
 
   async function onSaveThreshold() {

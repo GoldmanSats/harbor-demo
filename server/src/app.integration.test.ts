@@ -103,4 +103,73 @@ describe("slice one integration", () => {
     const reg = await harbor.app.inject({ method: "GET", url: "/api/registry/export" });
     expect(reg.json().addresses.length).toBeGreaterThanOrEqual(1);
   });
+
+  it("resets demo ledger and registry", async () => {
+    await harbor.app.inject({
+      method: "POST",
+      url: "/api/demo/simulate",
+      payload: { amountSats: 600_000, confirmations: 1 },
+    });
+    expect(listDonations(harbor.db).length).toBeGreaterThanOrEqual(1);
+
+    const reset = await harbor.app.inject({ method: "POST", url: "/api/demo/reset" });
+    expect(reset.statusCode).toBe(200);
+    expect(reset.json().ok).toBe(true);
+    expect(listDonations(harbor.db)).toHaveLength(0);
+
+    const reg = await harbor.app.inject({ method: "GET", url: "/api/registry/export" });
+    expect(reg.json().addresses).toHaveLength(0);
+  });
+});
+
+describe("slice two static serving", () => {
+  let dbPath: string;
+  let webDist: string;
+  let harbor: Awaited<ReturnType<typeof createApp>>;
+
+  beforeEach(async () => {
+    dbPath = path.join(os.tmpdir(), `harbor-static-${Date.now()}-${Math.random()}.db`);
+    webDist = fs.mkdtempSync(path.join(os.tmpdir(), "harbor-web-"));
+    fs.writeFileSync(
+      path.join(webDist, "index.html"),
+      "<!doctype html><html><body><div id='root'>Harbor SPA</div></body></html>",
+    );
+    harbor = await createApp({
+      dbPath,
+      rpc: new MockBitcoinRpc(),
+      listen: false,
+      serveWeb: true,
+      webDist,
+    });
+    await harbor.app.ready();
+  });
+
+  afterEach(async () => {
+    await harbor.stop();
+    for (const suffix of ["", "-wal", "-shm"]) {
+      try {
+        fs.unlinkSync(dbPath + suffix);
+      } catch {
+        /* ignore */
+      }
+    }
+    fs.rmSync(webDist, { recursive: true, force: true });
+  });
+
+  it("serves index.html for SPA routes and keeps /api working", async () => {
+    const home = await harbor.app.inject({ method: "GET", url: "/" });
+    expect(home.statusCode).toBe(200);
+    expect(home.body).toContain("Harbor SPA");
+
+    const donate = await harbor.app.inject({ method: "GET", url: "/donate" });
+    expect(donate.statusCode).toBe(200);
+    expect(donate.body).toContain("Harbor SPA");
+
+    const health = await harbor.app.inject({ method: "GET", url: "/api/health" });
+    expect(health.statusCode).toBe(200);
+    expect(health.json().ok).toBe(true);
+
+    const missingApi = await harbor.app.inject({ method: "GET", url: "/api/nope" });
+    expect(missingApi.statusCode).toBe(404);
+  });
 });

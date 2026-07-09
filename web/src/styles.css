@@ -55,6 +55,18 @@ code,
   padding: 24px 20px 64px;
 }
 
+.demo-banner {
+  background: rgba(240, 180, 41, 0.12);
+  border: 1px solid rgba(240, 180, 41, 0.45);
+  color: var(--warning);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
 .nav {
   display: flex;
   gap: 8px;

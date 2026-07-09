@@ -1,0 +1,14 @@
+#node_modules
+npm-debug.log
+.git
+.npm-cache
+data
+*.db
+*.db-journal
+infra/regtest-data
+coverage
+.vite
+.env
+.env.local
+*.md
+!README.md

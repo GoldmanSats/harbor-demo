@@ -88,6 +88,13 @@ export function simulateDonation(amountSats?: number) {
   );
 }
 
+export function resetDemo() {
+  return api<{ ok: boolean; message: string }>("/api/demo/reset", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 export function formatSats(n: number): string {
   return `${n.toLocaleString("en-US")} sats`;
 }

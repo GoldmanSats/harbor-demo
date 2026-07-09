@@ -1,0 +1,24 @@
+# Harbor hosted demo on Render (free tier)
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: harbor-demo
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HARBOR_HOSTED
+        value: "1"
+      - key: HARBOR_BITCOIN
+        value: mock
+      - key: HARBOR_SERVE_WEB
+        value: "1"
+      - key: HARBOR_DB_PATH
+        value: /tmp/harbor/harbor.db
+      - key: NODE_VERSION
+        value: "22"

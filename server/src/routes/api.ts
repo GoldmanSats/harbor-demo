@@ -6,6 +6,7 @@ import {
   getSettings,
   listDonations,
   listIssuedAddresses,
+  resetDemoData,
   setThreshold,
 } from "../db/schema.js";
 import { buildBitcoinUri } from "../bitcoin/derivation.js";
@@ -175,5 +176,15 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
   app.post("/api/demo/poll", async () => {
     const result = await pollOnce(db, rpc, rateProvider);
     return { ok: true, ...result };
+  });
+
+  /** Shared demo: wipe ledger + registry so visitors can start fresh. */
+  app.post("/api/demo/reset", async () => {
+    resetDemoData(db);
+    return {
+      ok: true,
+      message: "Demo ledger and address registry cleared.",
+      settings: getSettings(db),
+    };
   });
 }

@@ -287,3 +287,15 @@ export function donationSummary(db: Db): {
     donationCount: donations.length,
   };
 }
+
+/** Clear donation ledger and address registry; restore default settings. */
+export function resetDemoData(db: Db): void {
+  db.exec("DELETE FROM donations;");
+  db.exec("DELETE FROM issued_addresses;");
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run("threshold_sats", String(DEFAULT_THRESHOLD_SATS));
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run("btc_usd_rate", String(MOCK_BTC_USD));
+}

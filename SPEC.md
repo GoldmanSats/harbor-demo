@@ -80,4 +80,18 @@ No private keys. No signing. No mainnet. Fake money only.
 
 ## Out of scope
 
-Hardware wallets, PSBT composer, real Lightning/Fedimint/Cashu/Spark, BIP-353, blind mode, mainnet, production hosting, seed handling.
+Hardware wallets, PSBT composer, real Lightning/Fedimint/Cashu/Spark, BIP-353, blind mode, mainnet, multi-tenant production hosting, seed handling.
+
+## Slice Two addenda (hosted demo)
+
+### A8 — Single-process production mode
+
+1. With `HARBOR_SERVE_WEB=1` / `NODE_ENV=production`, Fastify serves `web/dist` and SPA-falls back `/donate` and `/dashboard` to `index.html`.
+2. `/api/*` routes continue to work on the same origin/port.
+3. Host binds `0.0.0.0` and respects `PORT`.
+4. Hosted mode forces mock Bitcoin RPC (fake money).
+
+### A9 — Demo reset
+
+1. `POST /api/demo/reset` clears donations and issued addresses and restores default settings.
+2. UI exposes a **Reset demo** control and a visible simulated-network banner.
