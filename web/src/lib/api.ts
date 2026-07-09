@@ -38,6 +38,7 @@ export type DonationsPayload = {
   donations: Donation[];
   summary: {
     coldStorageSats: number;
+    ecashSats: number;
     quarantinedSats: number;
     pendingSats: number;
     donationCount: number;
@@ -79,13 +80,17 @@ export function updateThreshold(thresholdSats: number) {
 }
 
 export function simulateDonation(amountSats?: number) {
-  return api<{ ok: boolean; address: string; amountSats: number; txid: string }>(
-    "/api/demo/simulate",
-    {
-      method: "POST",
-      body: JSON.stringify(amountSats ? { amountSats } : {}),
-    },
-  );
+  return api<{
+    ok: boolean;
+    rail: "onchain" | "lightning";
+    address: string;
+    amountSats: number;
+    txid: string;
+    message?: string;
+  }>("/api/demo/simulate", {
+    method: "POST",
+    body: JSON.stringify(amountSats ? { amountSats } : {}),
+  });
 }
 
 export function resetDemo() {

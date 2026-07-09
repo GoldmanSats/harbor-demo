@@ -265,15 +265,21 @@ export function listDonations(db: Db): Donation[] {
 
 export function donationSummary(db: Db): {
   coldStorageSats: number;
+  ecashSats: number;
   quarantinedSats: number;
   pendingSats: number;
   donationCount: number;
 } {
   const donations = listDonations(db);
   let coldStorageSats = 0;
+  let ecashSats = 0;
   let quarantinedSats = 0;
   let pendingSats = 0;
   for (const d of donations) {
+    if (d.rail === "lightning") {
+      ecashSats += d.amountSats;
+      continue;
+    }
     if (d.status === "quarantined") quarantinedSats += d.amountSats;
     else if (d.status === "pending") {
       pendingSats += d.amountSats;
@@ -282,6 +288,7 @@ export function donationSummary(db: Db): {
   }
   return {
     coldStorageSats,
+    ecashSats,
     quarantinedSats,
     pendingSats,
     donationCount: donations.length,

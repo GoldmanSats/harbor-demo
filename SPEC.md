@@ -50,11 +50,13 @@ No private keys. No signing. No mainnet. Fake money only.
 ### A4 — Detection & ledger
 
 1. When a watched address receives a payment on the simulated chain, a donation row is created within one poll interval after confirmation (or after detection of an unconfirmed tx, with `confirmations: 0`).
-2. Donation fields: `txid`, `vout`, `address`, `amount_sats`, `confirmations`, `fiat_usd_at_receipt`, `status`, `first_seen_at`.
+2. Donation fields: `txid`, `vout`, `address`, `amount_sats`, `confirmations`, `fiat_usd_at_receipt`, `status`, `first_seen_at`, `rail`.
 3. **Fiat value is captured at first-seen time and never restated** when the mock rate changes later.
-4. If `amount_sats < THRESHOLD_SATS` at first sight, status is `quarantined`.
-5. If `amount_sats >= THRESHOLD_SATS` and confirmations `>= 1`, status is `confirmed`; if unconfirmed, `pending`.
+4. If `rail=onchain` and `amount_sats < THRESHOLD_SATS` at first sight, status is `quarantined`.
+5. If `rail=onchain` and `amount_sats >= THRESHOLD_SATS` and confirmations `>= 1`, status is `confirmed`; if unconfirmed, `pending`.
 6. Quarantined donations remain quarantined even after more confirmations.
+7. Simulated Lightning donations (`rail=lightning`) are recorded as `confirmed` e-cash receipts and **never** quarantined; they count toward `ecashSats`, not `quarantinedSats`.
+8. `POST /api/demo/simulate` without an explicit address follows donor-page routing (Lightning below threshold, on-chain at/above).
 
 ### A5 — Donor page
 

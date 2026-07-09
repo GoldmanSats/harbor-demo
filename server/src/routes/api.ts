@@ -4,6 +4,7 @@ import type { Db } from "../db/schema.js";
 import {
   donationSummary,
   getSettings,
+  insertDonation,
   listDonations,
   listIssuedAddresses,
   resetDemoData,
@@ -15,6 +16,7 @@ import type { BitcoinRpc } from "../bitcoin/rpc.js";
 import type { RateProvider } from "../services/detection.js";
 import { pollOnce } from "../services/detection.js";
 import { DEFAULT_THRESHOLD_SATS } from "../config.js";
+import { randomBytes } from "node:crypto";
 
 const amountSchema = z.object({
   amountSats: z.number().int().positive(),
@@ -137,18 +139,50 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
     bitcoin: rpc.kind,
   }));
 
-  /** Dev/demo: pay an address on the simulated chain and mine confirmations. */
+  /** Dev/demo: simulate a donation on the rail the amount would actually use. */
   app.post("/api/demo/simulate", async (req, reply) => {
     const parsed = simulateSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid simulate payload" });
     }
+    const settings = getSettings(db);
+    const threshold = settings.thresholdSats || DEFAULT_THRESHOLD_SATS;
     const amountSats =
       parsed.data.amountSats ??
       (Math.random() < 0.5
         ? Math.floor(10_000 + Math.random() * 100_000)
         : Math.floor(500_000 + Math.random() * 2_000_000));
     const confirmations = parsed.data.confirmations ?? 1;
+
+    // Explicit address forces on-chain (used to demo dust quarantine).
+    // Otherwise follow the same threshold routing as the donor page.
+    const forceOnchain = Boolean(parsed.data.address);
+    const useLightning = !forceOnchain && amountSats < threshold;
+
+    if (useLightning) {
+      const paymentHash = randomBytes(32).toString("hex");
+      const fiat = Number(((amountSats / 1e8) * rateProvider.getBtcUsd()).toFixed(2));
+      insertDonation(db, {
+        txid: paymentHash,
+        vout: 0,
+        address: "lightning:preview",
+        amountSats,
+        confirmations: 1,
+        fiatUsdAtReceipt: fiat,
+        status: "confirmed",
+        firstSeenAt: new Date().toISOString(),
+        rail: "lightning",
+      });
+      return {
+        ok: true,
+        rail: "lightning" as const,
+        amountSats,
+        txid: paymentHash,
+        address: "lightning:preview",
+        confirmations: 1,
+        message: "Simulated Lightning settlement into the org e-cash wallet (preview).",
+      };
+    }
 
     let address = parsed.data.address;
     if (!address) {
@@ -166,6 +200,7 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
 
     return {
       ok: true,
+      rail: "onchain" as const,
       address,
       amountSats,
       txid,

@@ -90,6 +90,44 @@ describe("slice one integration", () => {
     expect(body.donations.some((d: { address: string }) => d.address === address)).toBe(true);
   });
 
+  it("simulates sub-threshold amounts as Lightning e-cash, not quarantine", async () => {
+    const sim = await harbor.app.inject({
+      method: "POST",
+      url: "/api/demo/simulate",
+      payload: { amountSats: 50_000 },
+    });
+    expect(sim.statusCode).toBe(200);
+    expect(sim.json().rail).toBe("lightning");
+
+    const dash = await harbor.app.inject({ method: "GET", url: "/api/donations" });
+    const body = dash.json();
+    expect(body.summary.ecashSats).toBe(50_000);
+    expect(body.summary.quarantinedSats).toBe(0);
+    expect(body.donations[0].rail).toBe("lightning");
+    expect(body.donations[0].status).toBe("confirmed");
+  });
+
+  it("still quarantines under-threshold on-chain when address is forced", async () => {
+    const issue = await harbor.app.inject({
+      method: "POST",
+      url: "/api/donate/address",
+      payload: { amountSats: 750_000 },
+    });
+    const { address } = issue.json();
+
+    const sim = await harbor.app.inject({
+      method: "POST",
+      url: "/api/demo/simulate",
+      payload: { address, amountSats: 12_000, confirmations: 1 },
+    });
+    expect(sim.statusCode).toBe(200);
+    expect(sim.json().rail).toBe("onchain");
+
+    const donations = listDonations(harbor.db);
+    const dust = donations.find((d) => d.address === address);
+    expect(dust?.status).toBe("quarantined");
+  });
+
   it("exports CSV and registry", async () => {
     await harbor.app.inject({
       method: "POST",

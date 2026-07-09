@@ -52,9 +52,15 @@ export function DonatePage() {
     setSimMsg(null);
     try {
       const res = await simulateDonation(amount > 0 ? amount : undefined);
-      setSimMsg(
-        `Simulated ${formatSats(res.amountSats)} to ${res.address.slice(0, 18)}… — check the dashboard.`,
-      );
+      if (res.rail === "lightning") {
+        setSimMsg(
+          `Simulated ${formatSats(res.amountSats)} over Lightning → e-cash wallet — check the dashboard.`,
+        );
+      } else {
+        setSimMsg(
+          `Simulated ${formatSats(res.amountSats)} on-chain to ${res.address.slice(0, 18)}… — check the dashboard.`,
+        );
+      }
     } catch (err) {
       setSimMsg((err as Error).message);
     }
@@ -146,8 +152,8 @@ export function DonatePage() {
           </button>
         </div>
         <p className="muted" style={{ marginBottom: 0 }}>
-          Pays the simulated chain and mines a confirmation. Open the dashboard to
-          see it appear.
+          Follows the same routing as the QR above: below the threshold → Lightning
+          e-cash; at or above → on-chain. Open the dashboard to see it appear.
         </p>
         {simMsg && <p className="callout" style={{ marginTop: 12 }}>{simMsg}</p>}
       </div>

@@ -9,7 +9,8 @@ import {
   type DonationsPayload,
 } from "../lib/api";
 
-function statusPill(status: Donation["status"]) {
+function statusPill(status: Donation["status"], rail: Donation["rail"]) {
+  if (rail === "lightning") return <span className="pill success">e-cash</span>;
   if (status === "confirmed") return <span className="pill success">confirmed</span>;
   if (status === "pending") return <span className="pill warning">pending</span>;
   return <span className="pill danger">quarantined</span>;
@@ -88,12 +89,12 @@ export function DashboardPage() {
           <div className="label">Cold storage (on-chain)</div>
         </div>
         <div className="stat">
-          <div className="value">{summary ? formatSats(summary.quarantinedSats) : "—"}</div>
-          <div className="label">Quarantined dust</div>
+          <div className="value">{summary ? formatSats(summary.ecashSats) : "—"}</div>
+          <div className="label">E-cash / Lightning</div>
         </div>
         <div className="stat">
-          <div className="value">{summary ? formatSats(summary.pendingSats) : "—"}</div>
-          <div className="label">Pending confirmations</div>
+          <div className="value">{summary ? formatSats(summary.quarantinedSats) : "—"}</div>
+          <div className="label">Quarantined on-chain dust</div>
         </div>
         <div className="stat">
           <div className="value">{summary ? String(summary.donationCount) : "—"}</div>
@@ -122,8 +123,9 @@ export function DashboardPage() {
           </a>
         </div>
         <p className="muted" style={{ marginBottom: 0, marginTop: 10 }}>
-          On-chain payments below the threshold are quarantined forever (never
-          co-spent in later slices). Fiat is frozen at first sight — rate{" "}
+          Below the threshold, Simulate records a Lightning → e-cash receipt (not
+          quarantine). Quarantine is only for under-threshold <em>on-chain</em>{" "}
+          UTXOs. Fiat is frozen at first sight — rate{" "}
           {data ? formatUsd(data.settings.btcUsdRate) : "—"} / BTC.
         </p>
       </div>
@@ -148,12 +150,18 @@ export function DashboardPage() {
                 <td>{d.rail}</td>
                 <td>{formatSats(d.amountSats)}</td>
                 <td>{formatUsd(d.fiatUsdAtReceipt)}</td>
-                <td>{statusPill(d.status)}</td>
+                <td>{statusPill(d.status, d.rail)}</td>
                 <td className="mono" style={{ fontSize: "0.75rem" }}>
-                  <div className="break">{d.address}</div>
-                  <div className="muted break">
-                    {d.txid.slice(0, 16)}… · {d.confirmations} conf
-                  </div>
+                  {d.rail === "lightning" ? (
+                    <div>Settled to e-cash wallet (preview)</div>
+                  ) : (
+                    <>
+                      <div className="break">{d.address}</div>
+                      <div className="muted break">
+                        {d.txid.slice(0, 16)}… · {d.confirmations} conf
+                      </div>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
