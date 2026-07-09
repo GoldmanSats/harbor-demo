@@ -97,9 +97,11 @@ export function getSettings(db: Db): Settings {
   const get = db.prepare("SELECT value FROM settings WHERE key = ?");
   const threshold = get.get("threshold_sats");
   const rate = get.get("btc_usd_rate");
+  const xpub = get.get("account_xpub") as { value: string } | undefined;
   return {
     thresholdSats: Number((threshold as { value: string } | undefined)?.value ?? DEFAULT_THRESHOLD_SATS),
     btcUsdRate: Number((rate as { value: string } | undefined)?.value ?? MOCK_BTC_USD),
+    accountXpub: xpub?.value && xpub.value.length > 0 ? xpub.value : null,
   };
 }
 
@@ -117,6 +119,20 @@ export function setBtcUsdRate(db: Db, rate: number): Settings {
   db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     .run("btc_usd_rate", String(rate));
   return getSettings(db);
+}
+
+export function setAccountXpub(db: Db, accountXpub: string | null): Settings {
+  const value = accountXpub?.trim() ? accountXpub.trim() : "";
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run("account_xpub", value);
+  return getSettings(db);
+}
+
+/** Clear issued addresses (and optionally donations) when the org changes xpub. */
+export function clearAddressRegistry(db: Db, clearDonations = true): void {
+  if (clearDonations) db.exec("DELETE FROM donations;");
+  db.exec("DELETE FROM issued_addresses;");
 }
 
 export function nextDerivationIndex(db: Db): number {
@@ -305,4 +321,7 @@ export function resetDemoData(db: Db): void {
   db.prepare(
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   ).run("btc_usd_rate", String(MOCK_BTC_USD));
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run("account_xpub", "");
 }

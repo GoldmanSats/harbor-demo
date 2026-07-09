@@ -4,16 +4,22 @@ import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
-import { openDatabase } from "./db/schema.js";
+import { getActiveIssuedAddresses, openDatabase } from "./db/schema.js";
 import { registerRoutes } from "./routes/api.js";
 import { HttpBitcoinRpc } from "./bitcoin/rpc.js";
 import { MockBitcoinRpc } from "./bitcoin/mock-rpc.js";
+import { EsploraBitcoinRpc } from "./bitcoin/esplora.js";
 import type { BitcoinRpc } from "./bitcoin/rpc.js";
+import { LiveRateProvider } from "./bitcoin/live-rate.js";
 import { MockRateProvider, startPoller } from "./services/detection.js";
+import type { RateProvider } from "./services/detection.js";
 import {
   DEMO_ACCOUNT_XPUB,
   MOCK_BTC_USD,
-  POLL_INTERVAL_MS,
+  SIGNET_ESPLORA_BASE,
+  pollIntervalFor,
+  resolveHarborNetwork,
+  type HarborNetwork,
 } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -22,6 +28,7 @@ export type HarborApp = {
   app: ReturnType<typeof Fastify>;
   db: ReturnType<typeof openDatabase>;
   rpc: BitcoinRpc;
+  network: HarborNetwork;
   stop: () => Promise<void>;
 };
 
@@ -55,6 +62,17 @@ function resolveWebDist(): string | null {
   return null;
 }
 
+function resolveNetwork(): HarborNetwork {
+  // Explicit HARBOR_NETWORK always wins (including signet on hosted).
+  const explicit = (process.env.HARBOR_NETWORK ?? "").toLowerCase();
+  if (explicit === "signet" || explicit === "regtest" || explicit === "mock") {
+    return explicit;
+  }
+  // Hosted demos default to mock unless signet was requested above.
+  if (isHostedMode()) return "mock";
+  return resolveHarborNetwork();
+}
+
 export async function createApp(options: {
   dbPath?: string;
   rpc?: BitcoinRpc;
@@ -63,7 +81,10 @@ export async function createApp(options: {
   listen?: boolean;
   serveWeb?: boolean;
   webDist?: string;
+  network?: HarborNetwork;
+  rateProvider?: RateProvider;
 } = {}): Promise<HarborApp> {
+  const network = options.network ?? resolveNetwork();
   const defaultDbDir = isHostedMode()
     ? path.join("/tmp", "harbor")
     : path.join(path.resolve(__dirname, "../../.."), "data");
@@ -73,10 +94,19 @@ export async function createApp(options: {
     path.join(defaultDbDir, "harbor.db");
   const db = openDatabase(dbPath);
 
-  const rpc = options.rpc ?? (await connectBitcoin());
-  const rateProvider = new MockRateProvider(
-    Number(process.env.HARBOR_BTC_USD ?? MOCK_BTC_USD),
-  );
+  const rpc = options.rpc ?? (await connectBitcoin(network, db));
+  const rateProvider =
+    options.rateProvider ??
+    (network === "signet"
+      ? new LiveRateProvider({
+          fallbackRate: Number(process.env.HARBOR_BTC_USD ?? MOCK_BTC_USD),
+        })
+      : new MockRateProvider(Number(process.env.HARBOR_BTC_USD ?? MOCK_BTC_USD)));
+
+  const maybeRefresh = (rateProvider as RateProvider).refresh?.bind(rateProvider);
+  if (maybeRefresh) {
+    await maybeRefresh().catch(() => undefined);
+  }
 
   const app = Fastify({ logger: Boolean(options.listen ?? true) });
   await app.register(cors, { origin: true });
@@ -84,7 +114,8 @@ export async function createApp(options: {
     db,
     rpc,
     rateProvider,
-    accountXpub: process.env.HARBOR_XPUB ?? DEMO_ACCOUNT_XPUB,
+    defaultAccountXpub: process.env.HARBOR_XPUB ?? DEMO_ACCOUNT_XPUB,
+    network,
   });
 
   const serveWeb = options.serveWeb ?? shouldServeWeb();
@@ -108,7 +139,7 @@ export async function createApp(options: {
     });
   }
 
-  const poller = startPoller(db, rpc, rateProvider, POLL_INTERVAL_MS);
+  const poller = startPoller(db, rpc, rateProvider, pollIntervalFor(network));
 
   if (options.listen !== false) {
     const port = options.port ?? Number(process.env.PORT ?? 3001);
@@ -123,6 +154,7 @@ export async function createApp(options: {
     app,
     db,
     rpc,
+    network,
     stop: async () => {
       poller.stop();
       await app.close();
@@ -131,14 +163,30 @@ export async function createApp(options: {
   };
 }
 
-async function connectBitcoin(): Promise<BitcoinRpc> {
-  // Hosted / production demos always use the in-process mock (fake money).
-  if (isHostedMode() || process.env.HARBOR_BITCOIN === "mock") {
+async function connectBitcoin(
+  network: HarborNetwork,
+  db: ReturnType<typeof openDatabase>,
+): Promise<BitcoinRpc> {
+  if (network === "signet") {
+    console.log("[harbor] Using Esplora (signet) at", SIGNET_ESPLORA_BASE);
+    return new EsploraBitcoinRpc({
+      baseUrl: process.env.HARBOR_ESPLORA_URL ?? SIGNET_ESPLORA_BASE,
+      getWatchedAddresses: () => getActiveIssuedAddresses(db).map((a) => a.address),
+    });
+  }
+
+  if (network === "mock" || process.env.HARBOR_BITCOIN === "mock") {
     console.log("[harbor] Using in-process mock Bitcoin RPC");
     return new MockBitcoinRpc();
   }
 
-  const mode = process.env.HARBOR_BITCOIN ?? "auto";
+  // Hosted without explicit signet stays on mock.
+  if (isHostedMode()) {
+    console.log("[harbor] Using in-process mock Bitcoin RPC");
+    return new MockBitcoinRpc();
+  }
+
+  const mode = process.env.HARBOR_BITCOIN ?? (network === "regtest" ? "regtest" : "auto");
   if (mode === "mock") {
     console.log("[harbor] Using in-process mock Bitcoin RPC");
     return new MockBitcoinRpc();
@@ -155,7 +203,7 @@ async function connectBitcoin(): Promise<BitcoinRpc> {
     await ensureWatchOnlyWallet(http);
     return http.withWallet("harbor-watch");
   } catch (err) {
-    if (mode === "regtest") throw err;
+    if (mode === "regtest" || network === "regtest") throw err;
     console.warn(
       "[harbor] Bitcoin Core unavailable, falling back to mock RPC:",
       (err as Error).message,
@@ -219,4 +267,11 @@ async function ensureWatchOnlyWallet(rpc: HttpBitcoinRpc): Promise<void> {
   }
 }
 
-export { DEMO_ACCOUNT_XPUB, MOCK_BTC_USD, isHostedMode, shouldServeWeb, resolveWebDist };
+export {
+  DEMO_ACCOUNT_XPUB,
+  MOCK_BTC_USD,
+  isHostedMode,
+  shouldServeWeb,
+  resolveWebDist,
+  resolveNetwork,
+};

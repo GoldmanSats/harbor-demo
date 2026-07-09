@@ -6,11 +6,18 @@ import {
   requestPayment,
   simulateDonation,
   type DonateResponse,
+  type HarborNetwork,
 } from "../lib/api";
 
 const PRESETS = [10_000, 100_000, 500_000, 2_000_000];
 
-export function DonatePage() {
+export function DonatePage({
+  demoTools = true,
+  network = "mock",
+}: {
+  demoTools?: boolean;
+  network?: HarborNetwork;
+}) {
   const [amountStr, setAmountStr] = useState("50000");
   const [payment, setPayment] = useState<DonateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +79,8 @@ export function DonatePage() {
       <p className="muted" style={{ marginTop: 0 }}>
         One permanent identifier. Enter an amount — Bitcoin is preferred. Below{" "}
         {formatSats(threshold)} you&apos;ll see Lightning (preview); at or above,
-        a fresh on-chain address that lands in cold storage.
+        a fresh on-chain address that lands in cold storage
+        {network === "signet" ? " (signet)." : "."}
       </p>
 
       <div className="card">
@@ -144,19 +152,21 @@ export function DonatePage() {
         )}
       </div>
 
-      <div className="card">
-        <div className="row">
-          <strong>Dev tools</strong>
-          <button type="button" className="btn secondary" onClick={onSimulate}>
-            Simulate payment
-          </button>
+      {demoTools && (
+        <div className="card">
+          <div className="row">
+            <strong>Dev tools</strong>
+            <button type="button" className="btn secondary" onClick={onSimulate}>
+              Simulate payment
+            </button>
+          </div>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            Follows the same routing as the QR above: below the threshold → Lightning
+            e-cash; at or above → on-chain. Open the dashboard to see it appear.
+          </p>
+          {simMsg && <p className="callout" style={{ marginTop: 12 }}>{simMsg}</p>}
         </div>
-        <p className="muted" style={{ marginBottom: 0 }}>
-          Follows the same routing as the QR above: below the threshold → Lightning
-          e-cash; at or above → on-chain. Open the dashboard to see it appear.
-        </p>
-        {simMsg && <p className="callout" style={{ marginTop: 12 }}>{simMsg}</p>}
-      </div>
+      )}
     </div>
   );
 }

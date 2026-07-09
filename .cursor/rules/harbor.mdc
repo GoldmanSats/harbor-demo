@@ -1,0 +1,28 @@
+---
+description: Standing Harbor project rules for all agents
+alwaysApply: true
+---
+
+# Harbor project rules
+
+## Done means verify is green
+
+Nothing is considered done until `npm run verify` passes (typecheck + lint + unit + integration). Do not open a PR or claim completion with a red verify gate.
+
+## SPEC.md is the referee
+
+Acceptance criteria live in [SPEC.md](../../SPEC.md). Implement to the spec; if behavior and SPEC disagree, update SPEC only when the product decision is intentional and documented in the same change.
+
+## Never touch mainnet
+
+Harbor may use mock, regtest, or **signet** only. Do not add mainnet RPC endpoints, mainnet explorers as defaults, or mainnet key material. Derivation may include mainnet vectors in unit tests only.
+
+## Branch-per-slice, PR to main
+
+- Work on a dedicated slice branch (e.g. `slice-3-signet`).
+- Open a PR to `main` when verify is green.
+- Do not commit directly to `main` unless the user explicitly asks.
+
+## Fake money by default
+
+Hosted / production demos stay on mock Bitcoin unless `HARBOR_NETWORK=signet` is explicitly set. Prefer fixture-based tests — no live network calls in CI.

@@ -67,6 +67,12 @@ code,
   text-align: center;
 }
 
+.demo-banner.signet {
+  background: rgba(61, 139, 253, 0.12);
+  border-color: rgba(61, 139, 253, 0.45);
+  color: var(--accent);
+}
+
 .nav {
   display: flex;
   gap: 8px;

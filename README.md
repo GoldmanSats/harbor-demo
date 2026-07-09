@@ -6,6 +6,8 @@ Privacy-preserving donation ledger for sensitive organizations.
 
 **Slice Two** — same demo as a **single deployable service** with a public URL (see [DEPLOY.md](./DEPLOY.md)).
 
+**Slice Three** — watch a real Sparrow signet wallet via mempool.space Esplora; paste your own xpub and verify addresses before accepting donations.
+
 ## Quick start (local)
 
 ```bash
@@ -42,7 +44,22 @@ NODE_ENV=production npm start
 
 ### Hosted demo
 
-Follow [DEPLOY.md](./DEPLOY.md) to put this on Render (or run the included Dockerfile).
+Follow [DEPLOY.md](./DEPLOY.md) to put this on Render (or run the included Dockerfile). Hosted demos stay on **mock** unless you explicitly set `HARBOR_NETWORK=signet`.
+
+## Signet quickstart (Slice Three)
+
+1. Install [Sparrow](https://sparrowwallet.com/), create a **signet** wallet (Taproot / BIP-86), and note the first few receive addresses.
+2. Export the account xpub from Sparrow (`tpub` / `vpub` are fine).
+3. Run Harbor in signet mode:
+
+```bash
+HARBOR_NETWORK=signet npm run dev
+```
+
+4. Open the dashboard → **Connect your wallet** → paste the xpub → confirm the three shown addresses match Sparrow receive #0–#2 → save.
+5. Get signet coins from a public faucet; open `/donate`, enter an above-threshold amount, and send to the issued `tb1p…` address from Sparrow (or any wallet).
+6. Within ~30s the donation should appear **pending**; after a signet block (~10 min) it becomes **confirmed**, with an explorer link. Balance is spendable only in your Sparrow wallet.
+7. Send a dust amount below the threshold — it should **quarantine** and never count toward cold storage.
 
 ## Verify gate
 
@@ -50,12 +67,12 @@ Follow [DEPLOY.md](./DEPLOY.md) to put this on Render (or run the included Docke
 npm run verify
 ```
 
-Runs typecheck, lint, unit tests (including BIP derivation vectors), and integration tests. Nothing is considered done unless this is green.
+Runs typecheck, lint, unit tests (including BIP derivation vectors and Esplora fixtures), and integration tests. Nothing is considered done unless this is green. CI stays network-free.
 
 ## Spec
 
-See [SPEC.md](./SPEC.md) for acceptance criteria.
+See [SPEC.md](./SPEC.md) for acceptance criteria (including A10 signet detection and A11 xpub onboarding).
 
 ## Out of scope (so far)
 
-Hardware wallets / signing, transaction composer, real Lightning/e-cash, BIP-353, blind mode, mainnet.
+Hardware wallets / signing, transaction composer, real Lightning/e-cash, BIP-352 silent payments, BIP-353, blind mode, mainnet.

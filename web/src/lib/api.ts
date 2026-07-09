@@ -1,4 +1,7 @@
 export const DEFAULT_THRESHOLD = 500_000;
+export const SIGNET_EXPLORER_TX = "https://mempool.space/signet/tx";
+
+export type HarborNetwork = "mock" | "regtest" | "signet";
 
 export type DonateResponse =
   | {
@@ -34,6 +37,15 @@ export type Donation = {
   rail: "onchain" | "lightning";
 };
 
+export type SettingsPayload = {
+  thresholdSats: number;
+  btcUsdRate: number;
+  accountXpub: string | null;
+  network: HarborNetwork;
+  usingDemoXpub: boolean;
+  previewAddresses: string[];
+};
+
 export type DonationsPayload = {
   donations: Donation[];
   summary: {
@@ -43,7 +55,16 @@ export type DonationsPayload = {
     pendingSats: number;
     donationCount: number;
   };
-  settings: { thresholdSats: number; btcUsdRate: number };
+  settings: SettingsPayload;
+};
+
+export type HealthPayload = {
+  ok: boolean;
+  bitcoin: string;
+  network: HarborNetwork;
+  chain: string;
+  blocks: number;
+  demoTools: boolean;
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -53,7 +74,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
+    let message = text || `HTTP ${res.status}`;
+    try {
+      const json = JSON.parse(text) as { error?: string };
+      if (json.error) message = json.error;
+    } catch {
+      /* keep text */
+    }
+    throw new Error(message);
   }
   if (res.headers.get("content-type")?.includes("application/json")) {
     return res.json() as Promise<T>;
@@ -72,10 +100,25 @@ export function fetchDonations() {
   return api<DonationsPayload>("/api/donations");
 }
 
+export function fetchSettings() {
+  return api<SettingsPayload>("/api/settings");
+}
+
+export function fetchHealth() {
+  return api<HealthPayload>("/api/health");
+}
+
 export function updateThreshold(thresholdSats: number) {
-  return api<{ thresholdSats: number }>("/api/settings", {
+  return api<SettingsPayload>("/api/settings", {
     method: "PUT",
     body: JSON.stringify({ thresholdSats }),
+  });
+}
+
+export function updateAccountXpub(accountXpub: string | null, resetAddresses = true) {
+  return api<SettingsPayload>("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify({ accountXpub, resetAddresses }),
   });
 }
 
@@ -98,6 +141,11 @@ export function resetDemo() {
     method: "POST",
     body: JSON.stringify({}),
   });
+}
+
+export function explorerTxUrl(network: HarborNetwork, txid: string): string | null {
+  if (network !== "signet") return null;
+  return `${SIGNET_EXPLORER_TX}/${txid}`;
 }
 
 export function formatSats(n: number): string {

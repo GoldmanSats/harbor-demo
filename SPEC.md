@@ -91,9 +91,37 @@ Hardware wallets, PSBT composer, real Lightning/Fedimint/Cashu/Spark, BIP-353, b
 1. With `HARBOR_SERVE_WEB=1` / `NODE_ENV=production`, Fastify serves `web/dist` and SPA-falls back `/donate` and `/dashboard` to `index.html`.
 2. `/api/*` routes continue to work on the same origin/port.
 3. Host binds `0.0.0.0` and respects `PORT`.
-4. Hosted mode forces mock Bitcoin RPC (fake money).
+4. Hosted mode forces mock Bitcoin RPC (fake money), unless `HARBOR_NETWORK=signet` is set explicitly.
 
 ### A9 — Demo reset
 
 1. `POST /api/demo/reset` clears donations and issued addresses and restores default settings.
 2. UI exposes a **Reset demo** control and a visible simulated-network banner.
+
+## Slice Three addenda (signet + xpub onboarding)
+
+### Constants (additions)
+
+| Name | Default | Notes |
+|------|---------|-------|
+| `HARBOR_NETWORK` | `mock` (hosted) / auto | `mock` \| `regtest` \| `signet` |
+| `SIGNET_POLL_INTERVAL_MS` | `30000` | Public Esplora etiquette |
+| Esplora base | `https://mempool.space/signet/api` | Injected `fetch` in tests |
+
+### A10 — Signet detection
+
+1. With `HARBOR_NETWORK=signet`, Harbor uses an Esplora client (`kind: "esplora"`) against the public signet explorer API — not mock or local bitcoind.
+2. A real (or fixture-stubbed) transaction paying a watched address with `amount_sats >= THRESHOLD_SATS` appears as `pending` when unconfirmed (`confirmations: 0`) and becomes `confirmed` once the tip implies `confirmations >= 1`.
+3. Fiat-at-receipt is set from the live (or cached/fallback) BTC/USD rate at first sight and never restated.
+4. Under-threshold on-chain amounts are `quarantined` and stay quarantined.
+5. `/api/health` exposes `network: "signet"`; simulate/dev tools are disabled (`demoTools: false`).
+6. Donation txids link to `https://mempool.space/signet/tx/:txid` in the UI.
+7. Unit/integration coverage uses recorded Esplora JSON fixtures — **no live network in CI**.
+
+### A11 — Xpub onboarding
+
+1. `GET/PUT /api/settings` includes optional `accountXpub`. Server prefers the DB value over `HARBOR_XPUB` / the demo key.
+2. Validation: key parses (including `tpub` / `vpub` version bytes), is account-level (BIP-32 depth 3), and derives index 0 successfully.
+3. Settings responses include `previewAddresses` — the first 3 external receive addresses — so the org can verify them against Sparrow before trusting Harbor.
+4. Changing the saved xpub clears issued addresses (and the donation ledger) so derivation indices cannot mix across wallets.
+5. Dashboard shows a **Connect your wallet** panel for paste → verify → save.
