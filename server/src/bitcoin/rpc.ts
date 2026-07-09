@@ -32,7 +32,7 @@ export type ListSinceBlockResult = {
 };
 
 export interface BitcoinRpc {
-  readonly kind: "regtest" | "mock";
+  readonly kind: "regtest" | "mock" | "esplora";
   call<T>(method: string, params?: unknown[]): Promise<T>;
   getBlockchainInfo(): Promise<{ chain: string; blocks: number }>;
   listSinceBlock(blockHash?: string): Promise<ListSinceBlockResult>;

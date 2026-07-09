@@ -1,15 +1,32 @@
 import { NavLink, Route, Routes } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DonatePage } from "./pages/DonatePage";
 import { DashboardPage } from "./pages/DashboardPage";
-import { resetDemo } from "./lib/api";
+import { fetchHealth, resetDemo, type HarborNetwork } from "./lib/api";
 
 export function App() {
   const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [network, setNetwork] = useState<HarborNetwork>("mock");
+  const [demoTools, setDemoTools] = useState(true);
+
+  useEffect(() => {
+    void fetchHealth()
+      .then((h) => {
+        setNetwork(h.network);
+        setDemoTools(h.demoTools);
+      })
+      .catch(() => {
+        /* keep defaults */
+      });
+  }, []);
 
   async function onReset() {
-    if (!window.confirm("Clear all demo donations and issued addresses?")) return;
+    const msg =
+      network === "signet"
+        ? "Clear all donations, issued addresses, and the saved xpub?"
+        : "Clear all demo donations and issued addresses?";
+    if (!window.confirm(msg)) return;
     setResetting(true);
     setResetMsg(null);
     try {
@@ -23,13 +40,20 @@ export function App() {
     }
   }
 
+  const isSignet = network === "signet";
+
   return (
     <div className="app-shell">
-      <div className="demo-banner" role="status">
-        Simulated network — not real bitcoin. Fake money only.
+      <div className={`demo-banner ${isSignet ? "signet" : ""}`} role="status">
+        {isSignet
+          ? "Signet — real testnet coins. Funds only your wallet can spend."
+          : "Simulated network — not real bitcoin. Fake money only."}
       </div>
       <nav className="nav">
         <div className="brand">Harbor</div>
+        <span className={`pill ${isSignet ? "accent" : "warning"}`}>
+          {isSignet ? "Signet" : "Simulated"}
+        </span>
         <NavLink to="/donate" className={({ isActive }) => (isActive ? "active" : "")}>
           Donate
         </NavLink>
@@ -43,7 +67,7 @@ export function App() {
           disabled={resetting}
           onClick={onReset}
         >
-          Reset demo
+          {isSignet ? "Reset ledger" : "Reset demo"}
         </button>
       </nav>
       {resetMsg && (
@@ -52,9 +76,12 @@ export function App() {
         </p>
       )}
       <Routes>
-        <Route path="/" element={<DonatePage />} />
-        <Route path="/donate" element={<DonatePage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/" element={<DonatePage demoTools={demoTools} network={network} />} />
+        <Route path="/donate" element={<DonatePage demoTools={demoTools} network={network} />} />
+        <Route
+          path="/dashboard"
+          element={<DashboardPage demoTools={demoTools} network={network} />}
+        />
       </Routes>
     </div>
   );

@@ -12,6 +12,8 @@ import { POLL_INTERVAL_MS } from "../config.js";
 
 export type RateProvider = {
   getBtcUsd(): number;
+  /** Optional async refresh (live providers). */
+  refresh?(): Promise<number>;
 };
 
 export class MockRateProvider implements RateProvider {
@@ -91,6 +93,7 @@ export function startPoller(
   const tick = async () => {
     if (stopped) return;
     try {
+      if (rateProvider.refresh) await rateProvider.refresh();
       await pollOnce(db, rpc, rateProvider);
     } catch (err) {
       console.error("[poller]", err);
