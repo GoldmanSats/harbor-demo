@@ -192,6 +192,24 @@ export function saveWallet(db: Db, wallet: ValidatedWallet, connectedAt = new Da
   return getSettings(db);
 }
 
+export function replaceWalletAndClearHistory(
+  db: Db,
+  wallet: ValidatedWallet,
+  connectedAt = new Date(),
+): Settings {
+  db.exec("BEGIN IMMEDIATE;");
+  try {
+    db.exec("DELETE FROM donations;");
+    db.exec("DELETE FROM issued_addresses;");
+    writeWalletSettings(db, wallet, connectedAt.toISOString());
+    db.exec("COMMIT;");
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
+  }
+  return getSettings(db);
+}
+
 export function clearWallet(db: Db): Settings {
   for (const key of [
     "wallet_descriptor",

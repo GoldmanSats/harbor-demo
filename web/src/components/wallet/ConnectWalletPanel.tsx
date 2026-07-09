@@ -220,6 +220,7 @@ export function ConnectWalletPanel({
   }
 
   const direct = candidate?.source === "trezor" || candidate?.source === "ledger";
+  const directAvailable = network === "signet" || network === "testnet4";
   const saveEnabled =
     Boolean(candidate && preview && verification) &&
     (!preview?.walletChange || confirmChange) &&
@@ -245,17 +246,18 @@ export function ConnectWalletPanel({
       </p>
 
       <div className="row">
-        {defaultAdapters.map((adapter) => (
-          <button
-            key={adapter.source}
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={() => void connectAdapter(adapter)}
-          >
-            Connect {adapter.label}
-          </button>
-        ))}
+        {directAvailable &&
+          defaultAdapters.map((adapter) => (
+            <button
+              key={adapter.source}
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => void connectAdapter(adapter)}
+            >
+              Connect {adapter.label}
+            </button>
+          ))}
         <button
           type="button"
           className="btn secondary"
@@ -268,6 +270,12 @@ export function ConnectWalletPanel({
           Import watch-only wallet
         </button>
       </div>
+      {!directAvailable && (
+        <p className="muted" style={{ fontSize: "0.85rem" }}>
+          Direct Trezor and Ledger connection is available on Signet and Testnet4. Import and
+          Advanced setup remain available here.
+        </p>
+      )}
 
       {importOpen && (
         <div style={{ marginTop: 14 }}>

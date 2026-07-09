@@ -91,6 +91,21 @@ describe("ConnectWalletPanel", () => {
     expect(details?.open).toBe(false);
   });
 
+  it("hides direct device connections off Signet/Testnet4 while keeping fallbacks", () => {
+    render(
+      <ConnectWalletPanel
+        settings={null}
+        network="mock"
+        adapters={[adapter()]}
+        onConnected={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Connect Trezor" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Import watch-only wallet" })).toBeTruthy();
+    expect(screen.getByText("Advanced setup")).toBeTruthy();
+  });
+
   it("requires server preview and physical address verification before saving", async () => {
     const fetchMock = mockApi();
     const user = userEvent.setup();

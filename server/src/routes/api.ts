@@ -2,13 +2,12 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Db } from "../db/schema.js";
 import {
-  clearWallet,
-  clearAddressRegistry,
   donationSummary,
   getSettings,
   insertDonation,
   listDonations,
   listIssuedAddresses,
+  replaceWalletAndClearHistory,
   resetDemoData,
   saveWallet,
   setThreshold,
@@ -108,12 +107,18 @@ function isPublicNetwork(network: HarborNetwork): boolean {
   return network === "signet" || network === "testnet4";
 }
 
-function validateCandidateForSource(candidate: WalletCandidate): void {
+function validateCandidateForSource(candidate: WalletCandidate, network: HarborNetwork): void {
   if (
     (candidate.source === "trezor" || candidate.source === "ledger") &&
     (!candidate.accountPublicKey || !candidate.fingerprint || !candidate.accountPath)
   ) {
     throw new Error("Hardware-wallet account details are incomplete");
+  }
+  if (
+    (candidate.source === "trezor" || candidate.source === "ledger") &&
+    !isPublicNetwork(network)
+  ) {
+    throw new Error("Direct hardware-wallet connection is available only on Signet and Testnet4");
   }
 }
 
@@ -216,7 +221,7 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
       return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid wallet" });
     }
     try {
-      validateCandidateForSource(parsed.data);
+      validateCandidateForSource(parsed.data, network);
       const wallet = validateWalletCandidate(parsed.data, derivationNetwork, 3);
       return {
         ok: true,
@@ -238,7 +243,7 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
       return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid wallet" });
     }
     try {
-      validateCandidateForSource(parsed.data);
+      validateCandidateForSource(parsed.data, network);
       const wallet = validateWalletCandidate(parsed.data, derivationNetwork, 3);
       validateVerification(wallet, parsed.data.verification);
       const changed = walletWouldReplace(db, wallet, defaultAccountXpub);
@@ -249,8 +254,11 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
           code: "wallet_change_confirmation_required",
         });
       }
-      if (changed && hasWalletLedgerData(db)) clearAddressRegistry(db, true);
-      saveWallet(db, wallet);
+      if (changed && hasWalletLedgerData(db)) {
+        replaceWalletAndClearHistory(db, wallet);
+      } else {
+        saveWallet(db, wallet);
+      }
       return settingsResponse(db, network, defaultAccountXpub);
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message });
@@ -287,43 +295,16 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
       return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid settings" });
     }
 
-    if (parsed.data.thresholdSats !== undefined) {
-      setThreshold(db, parsed.data.thresholdSats);
+    if (parsed.data.accountXpub !== undefined) {
+      return reply.code(400).send({
+        error:
+          "Account-key saves require address verification. Preview and save through /api/wallet instead.",
+        code: "verified_wallet_save_required",
+      });
     }
 
-    if (parsed.data.accountXpub !== undefined) {
-      const next = parsed.data.accountXpub;
-      if (next === null || next.trim() === "") {
-        if (hasWalletLedgerData(db) && parsed.data.resetAddresses !== true) {
-          return reply.code(409).send({
-            error: "Disconnecting this wallet will clear issued addresses and donation history.",
-            code: "wallet_change_confirmation_required",
-          });
-        }
-        if (hasWalletLedgerData(db)) clearAddressRegistry(db, true);
-        clearWallet(db);
-      } else {
-        let wallet;
-        try {
-          wallet = validateWalletCandidate(
-            { accountPublicKey: next, source: "advanced" },
-            derivationNetwork,
-            3,
-          );
-        } catch (err) {
-          return reply.code(400).send({ error: (err as Error).message });
-        }
-        const changed = walletWouldReplace(db, wallet, defaultAccountXpub);
-        if (changed && hasWalletLedgerData(db) && parsed.data.resetAddresses !== true) {
-          return reply.code(409).send({
-            error:
-              "Connecting this wallet will clear issued addresses and donation history. Confirm the wallet change to continue.",
-            code: "wallet_change_confirmation_required",
-          });
-        }
-        if (changed && hasWalletLedgerData(db)) clearAddressRegistry(db, true);
-        saveWallet(db, wallet);
-      }
+    if (parsed.data.thresholdSats !== undefined) {
+      setThreshold(db, parsed.data.thresholdSats);
     }
 
     return settingsResponse(db, network, defaultAccountXpub);
