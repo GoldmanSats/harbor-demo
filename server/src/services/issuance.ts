@@ -5,8 +5,12 @@ import {
   nextDerivationIndex,
   recycleAddress,
 } from "../db/schema.js";
-import { deriveTaprootAddress, derivationNetworkFor } from "../bitcoin/derivation.js";
+import { derivationNetworkFor } from "../bitcoin/derivation.js";
 import type { NetworkName } from "../bitcoin/derivation.js";
+import {
+  deriveDescriptorAddress,
+  descriptorFromAccountPublicKey,
+} from "../bitcoin/descriptor.js";
 import { ADDRESS_TTL_MS, DEMO_ACCOUNT_XPUB, type HarborNetwork } from "../config.js";
 import type { IssuedAddress } from "../config.js";
 import type { MockBitcoinRpc } from "../bitcoin/mock-rpc.js";
@@ -18,12 +22,14 @@ export type IssueResult = {
 };
 
 /**
- * Issue a fresh (or recycled unpaid) taproot address from the org xpub.
+ * Issue a fresh (or recycled unpaid) taproot address from the org descriptor.
  * Guarantees: no active address is served twice.
  */
 export function issueAddress(
   db: Db,
   opts: {
+    receiveDescriptor?: string;
+    /** Slice Three compatibility alias. */
     accountXpub?: string;
     now?: Date;
     ttlMs?: number;
@@ -33,7 +39,11 @@ export function issueAddress(
 ): IssueResult {
   const now = opts.now ?? new Date();
   const ttlMs = opts.ttlMs ?? ADDRESS_TTL_MS;
-  const xpub = opts.accountXpub ?? DEMO_ACCOUNT_XPUB;
+  const descriptor =
+    opts.receiveDescriptor ??
+    descriptorFromAccountPublicKey({
+      accountPublicKey: opts.accountXpub ?? DEMO_ACCOUNT_XPUB,
+    });
   const networkName: NetworkName = resolveIssueNetwork(opts.network);
 
   const recyclable = findRecyclableAddress(db, now.toISOString());
@@ -44,14 +54,20 @@ export function issueAddress(
   }
 
   const index = nextDerivationIndex(db);
-  const address = deriveTaprootAddress(xpub, index, networkName);
+  const address = deriveDescriptorAddress(descriptor, index, networkName);
   const issued = insertIssuedAddress(db, address, index, now, ttlMs);
   watchIfMock(opts.rpc, issued.address);
   return { address: issued, recycled: false };
 }
 
 function resolveIssueNetwork(network?: HarborNetwork | NetworkName): NetworkName {
-  if (network === "signet" || network === "testnet" || network === "mainnet" || network === "regtest") {
+  if (
+    network === "signet" ||
+    network === "testnet4" ||
+    network === "testnet" ||
+    network === "mainnet" ||
+    network === "regtest"
+  ) {
     return network;
   }
   if (network === "mock") return "regtest";

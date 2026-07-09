@@ -33,6 +33,11 @@ describe("signet / tpub / vpub derivation", () => {
     expect(isValidAddress(addr, "signet")).toBe(true);
   });
 
+  it("uses the same key/address encoding on Testnet4 while keeping the chain distinct", () => {
+    expect(deriveTaprootAddress(DEMO_ACCOUNT_XPUB, 0, "testnet4")).toBe(expected0);
+    expect(isValidAddress(expected0, "testnet4")).toBe(true);
+  });
+
   it("accepts tpub and vpub with identical key material", () => {
     const tpub = reencode(DEMO_ACCOUNT_XPUB, TPUB_VER);
     const vpub = reencode(DEMO_ACCOUNT_XPUB, VPUB_VER);

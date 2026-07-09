@@ -82,7 +82,7 @@ No private keys. No signing. No mainnet. Fake money only.
 
 ## Out of scope
 
-Hardware wallets, PSBT composer, real Lightning/Fedimint/Cashu/Spark, BIP-353, blind mode, mainnet, multi-tenant production hosting, seed handling.
+Hardware-wallet transaction signing, PSBT composer, real Lightning/Fedimint/Cashu/Spark, BIP-353, blind mode, mainnet, multi-tenant production hosting, seed handling.
 
 ## Slice Two addenda (hosted demo)
 
@@ -127,3 +127,39 @@ Hardware wallets, PSBT composer, real Lightning/Fedimint/Cashu/Spark, BIP-353, b
 5. Changing to a **different** normalized xpub clears issued addresses and the donation ledger. Re-saving the same normalized xpub (including `tpub`/`vpub` ↔ `xpub`) must **not** reset.
 6. On signet, `POST /api/donate/address` for on-chain amounts returns HTTP 409 until an organization xpub is saved — the demo key is not used for real-network issuance.
 7. Dashboard shows a **Connect your wallet** panel: paste → preview → verify against Sparrow → save.
+
+## Slice 3B addenda (hardware-wallet onboarding + Testnet4)
+
+### Constants (additions)
+
+| Name | Default | Notes |
+|------|---------|-------|
+| `HARBOR_NETWORK` | `mock` (hosted) / auto | Adds explicit `testnet4`; explicit public networks override hosted mock defaults |
+| Testnet4 Esplora base | `https://mempool.space/testnet4/api` | Injected `fetch` in tests |
+| Public-network polling | `30000` | Applies to Signet and Testnet4 |
+
+### A12 — Descriptor wallet
+
+1. Harbor persists a canonical checksummed single-key BIP-86 Taproot receive descriptor and optional change descriptor, plus source, master fingerprint, account path, and connection time. It never persists or accepts private keys.
+2. Validation accepts only `tr([fingerprint/86h/coin_typeh/accounth]account_xpub/0/*)` receive descriptors for the active test network and derives the first three addresses server-side. Non-Taproot scripts, script trees, multisig, malformed wildcards, wrong-network keys, wrong purpose/coin/account depth, and private keys are rejected.
+3. Opening a database containing a legacy `account_xpub` migrates it to the equivalent canonical descriptor without clearing issued addresses or donations. Existing xpub settings and preview endpoints remain compatibility aliases for Advanced setup.
+4. Reconnecting the same normalized wallet never clears data, including when the source, checksum, hardened-marker syntax, or extended-public-key version encoding differs.
+5. Replacing the wallet with a genuinely different descriptor requires an explicit destructive-change confirmation. Only a confirmed change clears issued addresses and donations.
+6. Address issuance derives from the persisted validated receive descriptor while retaining existing expiry, recycling, and gap-limit behavior. Regtest Core imports that stored descriptor rather than rebuilding one independently from `HARBOR_XPUB`.
+
+### A13 — Hardware-wallet onboarding
+
+1. The primary dashboard flow offers **Connect Trezor**, **Connect Ledger**, and **Import watch-only wallet**, and explains that Harbor can observe the donation account but cannot move funds. Normal flow does not expose xpub, descriptor, or derivation-path terminology.
+2. Trezor Connect requests BIP-86 account public information and displays receive address 0 on the device. Ledger uses secure-context WebHID, the Device Management Kit, and Bitcoin signer kit to request the same information and display receive address 0. Harbor saves only after the displayed address exactly matches the server preview.
+3. Device denial, disconnection, wrong app/network, unsupported browser, popup, and address-mismatch failures are recoverable, plain-language errors. Vendor SDKs are lazy-loaded so Import and Advanced remain available in unsupported browsers.
+4. Import accepts pasted descriptors, UTF-8 text files, JSON with a standard descriptor field, and static descriptor QR codes. Animated BBQr/UR and direct Jade, Coldcard, and BitBox adapters are explicitly identified as unsupported/planned.
+5. Manual account-public-key entry remains under collapsed **Advanced setup** and routes through the same server descriptor validation and preview-before-save pipeline. Imported/manual wallets require explicit confirmation that all three preview addresses were independently compared.
+6. Hardware integrations are read-only: no signing, spending, seed, private-key, or mainnet capability is requested or implemented.
+
+### A14 — Testnet4
+
+1. `HARBOR_NETWORK=testnet4` is a distinct Harbor network using test-network key/address encoding, `https://mempool.space/testnet4/api`, public-network polling, and the live-rate provider. It overrides hosted mock defaults when explicit; hosted deployments remain mock by default.
+2. `/api/health` reports `network: "testnet4"` and Esplora reports chain `testnet4`. Simulate/dev mutation tools are disabled.
+3. Testnet4 on-chain issuance returns HTTP 409 until a non-demo watch-only wallet is connected, matching Signet safety behavior.
+4. Testnet4 transactions link to `https://mempool.space/testnet4/tx/:txid`; dashboard and donor UI show a distinct Testnet4 badge and explanatory copy.
+5. Fixture-driven tests cover pending-to-confirmed Testnet4 detection with no live HTTP in CI, while mock, regtest, and Signet behavior remain green.

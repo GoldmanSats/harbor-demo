@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Db } from "../db/schema.js";
 import {
+  clearWallet,
   clearAddressRegistry,
   donationSummary,
   getSettings,
@@ -9,14 +10,20 @@ import {
   listDonations,
   listIssuedAddresses,
   resetDemoData,
-  setAccountXpub,
+  saveWallet,
   setThreshold,
 } from "../db/schema.js";
 import {
   buildBitcoinUri,
   derivationNetworkFor,
-  validateAccountXpub,
 } from "../bitcoin/derivation.js";
+import {
+  descriptorFromAccountPublicKey,
+  descriptorIdentity,
+  validateWalletCandidate,
+  type ValidatedWallet,
+  type WalletCandidate,
+} from "../bitcoin/descriptor.js";
 import { issueAddress } from "../services/issuance.js";
 import type { BitcoinRpc } from "../bitcoin/rpc.js";
 import type { RateProvider } from "../services/detection.js";
@@ -46,6 +53,34 @@ const xpubPreviewSchema = z.object({
   accountXpub: z.string().min(1),
 });
 
+const walletSourceSchema = z.enum(["trezor", "ledger", "import", "advanced", "legacy"]);
+const walletCandidateShape = {
+  descriptor: z.string().min(1).optional(),
+  changeDescriptor: z.string().min(1).optional(),
+  accountPublicKey: z.string().min(1).optional(),
+  changeAccountPublicKey: z.string().min(1).optional(),
+  fingerprint: z.string().optional(),
+  accountPath: z.string().optional(),
+  source: walletSourceSchema.optional(),
+};
+const walletPreviewSchema = z
+  .object(walletCandidateShape)
+  .refine((body) => Boolean(body.descriptor || body.accountPublicKey), {
+    message: "Provide a descriptor or account public key",
+  });
+const walletSaveSchema = z
+  .object({
+    ...walletCandidateShape,
+    verification: z.object({
+      method: z.enum(["device", "addresses"]),
+      addresses: z.array(z.string()).min(1).max(3),
+    }),
+    confirmWalletChange: z.boolean().optional(),
+  })
+  .refine((body) => Boolean(body.descriptor || body.accountPublicKey), {
+    message: "Provide a descriptor or account public key",
+  });
+
 const simulateSchema = z.object({
   amountSats: z.number().int().positive().optional(),
   address: z.string().optional(),
@@ -61,8 +96,62 @@ export type AppDeps = {
   network: HarborNetwork;
 };
 
-function resolveAccountXpub(db: Db, defaultXpub: string): string {
-  return getSettings(db).accountXpub ?? defaultXpub;
+function defaultReceiveDescriptor(defaultXpub: string): string {
+  return descriptorFromAccountPublicKey({ accountPublicKey: defaultXpub });
+}
+
+function resolveReceiveDescriptor(db: Db, defaultXpub: string): string {
+  return getSettings(db).walletDescriptor ?? defaultReceiveDescriptor(defaultXpub);
+}
+
+function isPublicNetwork(network: HarborNetwork): boolean {
+  return network === "signet" || network === "testnet4";
+}
+
+function validateCandidateForSource(candidate: WalletCandidate): void {
+  if (
+    (candidate.source === "trezor" || candidate.source === "ledger") &&
+    (!candidate.accountPublicKey || !candidate.fingerprint || !candidate.accountPath)
+  ) {
+    throw new Error("Hardware-wallet account details are incomplete");
+  }
+}
+
+function walletWouldReplace(
+  db: Db,
+  wallet: ValidatedWallet,
+  defaultXpub: string,
+): boolean {
+  const activeDescriptor = resolveReceiveDescriptor(db, defaultXpub);
+  return descriptorIdentity(activeDescriptor) !== wallet.identity;
+}
+
+function hasWalletLedgerData(db: Db): boolean {
+  return listIssuedAddresses(db).length > 0 || listDonations(db).length > 0;
+}
+
+function validateVerification(
+  wallet: ValidatedWallet,
+  verification: { method: "device" | "addresses"; addresses: string[] },
+): void {
+  const direct = wallet.source === "trezor" || wallet.source === "ledger";
+  if (direct) {
+    if (
+      verification.method !== "device" ||
+      verification.addresses.length !== 1 ||
+      verification.addresses[0] !== wallet.previewAddresses[0]
+    ) {
+      throw new Error("Confirm receive address 0 on the hardware wallet before saving");
+    }
+    return;
+  }
+  if (
+    verification.method !== "addresses" ||
+    verification.addresses.length !== wallet.previewAddresses.length ||
+    verification.addresses.some((address, index) => address !== wallet.previewAddresses[index])
+  ) {
+    throw new Error("Confirm all three preview addresses before saving");
+  }
 }
 
 function settingsResponse(
@@ -71,18 +160,33 @@ function settingsResponse(
   defaultXpub: string,
 ) {
   const settings = getSettings(db);
-  const activeXpub = settings.accountXpub ?? defaultXpub;
   const derivationNetwork = derivationNetworkFor(network);
   let previewAddresses: string[] = [];
   try {
-    previewAddresses = validateAccountXpub(activeXpub, derivationNetwork, 3).previewAddresses;
+    previewAddresses = validateWalletCandidate(
+      {
+        descriptor: settings.walletDescriptor ?? defaultReceiveDescriptor(defaultXpub),
+        source: settings.walletSource ?? "legacy",
+      },
+      derivationNetwork,
+      3,
+    ).previewAddresses;
   } catch {
     previewAddresses = [];
   }
   return {
-    ...settings,
+    thresholdSats: settings.thresholdSats,
+    btcUsdRate: settings.btcUsdRate,
+    // Slice Three compatibility aliases. The standard UI uses walletConnected/source.
+    accountXpub: settings.accountXpub,
     network,
-    usingDemoXpub: !settings.accountXpub,
+    walletConnected: Boolean(settings.walletDescriptor),
+    walletSource: settings.walletSource,
+    walletFingerprint: settings.walletFingerprint,
+    walletAccountPath: settings.walletAccountPath,
+    walletConnectedAt: settings.walletConnectedAt,
+    usingDemoWallet: !settings.walletDescriptor,
+    usingDemoXpub: !settings.walletDescriptor,
     previewAddresses,
   };
 }
@@ -90,7 +194,7 @@ function settingsResponse(
 export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promise<void> {
   const { db, rpc, rateProvider, defaultAccountXpub, network } = deps;
   const derivationNetwork = derivationNetworkFor(network);
-  const demoToolsEnabled = network !== "signet" && rpc.kind !== "esplora";
+  const demoToolsEnabled = !isPublicNetwork(network) && rpc.kind !== "esplora";
 
   app.get("/api/health", async () => {
     const info = await rpc.getBlockchainInfo();
@@ -106,6 +210,53 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
 
   app.get("/api/settings", async () => settingsResponse(db, network, defaultAccountXpub));
 
+  app.post("/api/wallet/preview", async (req, reply) => {
+    const parsed = walletPreviewSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid wallet" });
+    }
+    try {
+      validateCandidateForSource(parsed.data);
+      const wallet = validateWalletCandidate(parsed.data, derivationNetwork, 3);
+      return {
+        ok: true,
+        source: wallet.source,
+        fingerprint: wallet.fingerprint,
+        accountPath: wallet.accountPath,
+        previewAddresses: wallet.previewAddresses,
+        walletChange: walletWouldReplace(db, wallet, defaultAccountXpub) && hasWalletLedgerData(db),
+        network,
+      };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.put("/api/wallet", async (req, reply) => {
+    const parsed = walletSaveSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid wallet" });
+    }
+    try {
+      validateCandidateForSource(parsed.data);
+      const wallet = validateWalletCandidate(parsed.data, derivationNetwork, 3);
+      validateVerification(wallet, parsed.data.verification);
+      const changed = walletWouldReplace(db, wallet, defaultAccountXpub);
+      if (changed && hasWalletLedgerData(db) && parsed.data.confirmWalletChange !== true) {
+        return reply.code(409).send({
+          error:
+            "Connecting this wallet will clear issued addresses and donation history. Confirm the wallet change to continue.",
+          code: "wallet_change_confirmation_required",
+        });
+      }
+      if (changed && hasWalletLedgerData(db)) clearAddressRegistry(db, true);
+      saveWallet(db, wallet);
+      return settingsResponse(db, network, defaultAccountXpub);
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
   /** Validate an xpub and return the first 3 receive addresses without persisting. */
   app.post("/api/settings/xpub/preview", async (req, reply) => {
     const parsed = xpubPreviewSchema.safeParse(req.body);
@@ -113,11 +264,15 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
       return reply.code(400).send({ error: "accountXpub is required" });
     }
     try {
-      const validated = validateAccountXpub(parsed.data.accountXpub, derivationNetwork, 3);
+      const validated = validateWalletCandidate(
+        { accountPublicKey: parsed.data.accountXpub, source: "advanced" },
+        derivationNetwork,
+        3,
+      );
       return {
         ok: true,
-        normalized: validated.normalized,
-        depth: validated.depth,
+        normalized: validated.accountXpub,
+        depth: 3,
         previewAddresses: validated.previewAddresses,
         network,
       };
@@ -139,23 +294,35 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
     if (parsed.data.accountXpub !== undefined) {
       const next = parsed.data.accountXpub;
       if (next === null || next.trim() === "") {
-        setAccountXpub(db, null);
-        if (parsed.data.resetAddresses !== false) clearAddressRegistry(db, true);
+        if (hasWalletLedgerData(db) && parsed.data.resetAddresses !== true) {
+          return reply.code(409).send({
+            error: "Disconnecting this wallet will clear issued addresses and donation history.",
+            code: "wallet_change_confirmation_required",
+          });
+        }
+        if (hasWalletLedgerData(db)) clearAddressRegistry(db, true);
+        clearWallet(db);
       } else {
-        let validated;
+        let wallet;
         try {
-          validated = validateAccountXpub(next, derivationNetwork, 3);
+          wallet = validateWalletCandidate(
+            { accountPublicKey: next, source: "advanced" },
+            derivationNetwork,
+            3,
+          );
         } catch (err) {
           return reply.code(400).send({ error: (err as Error).message });
         }
-        const prev = getSettings(db).accountXpub;
-        const changed = prev !== validated.normalized;
-        setAccountXpub(db, validated.normalized);
-        // Reset only when the normalized key actually changes (never on same-xpub re-save,
-        // even if the client sends resetAddresses: true).
-        if (changed && (prev !== null || listIssuedAddresses(db).length > 0)) {
-          clearAddressRegistry(db, true);
+        const changed = walletWouldReplace(db, wallet, defaultAccountXpub);
+        if (changed && hasWalletLedgerData(db) && parsed.data.resetAddresses !== true) {
+          return reply.code(409).send({
+            error:
+              "Connecting this wallet will clear issued addresses and donation history. Confirm the wallet change to continue.",
+            code: "wallet_change_confirmation_required",
+          });
         }
+        if (changed && hasWalletLedgerData(db)) clearAddressRegistry(db, true);
+        saveWallet(db, wallet);
       }
     }
 
@@ -184,16 +351,15 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
       };
     }
 
-    if (network === "signet" && !settings.accountXpub) {
+    if (isPublicNetwork(network) && !settings.walletDescriptor) {
       return reply.code(409).send({
-        error:
-          "Connect your organization wallet xpub on the dashboard before issuing signet donation addresses.",
+        error: "Connect your organization wallet on the dashboard before issuing donation addresses.",
+        code: "wallet_required",
       });
     }
 
-    const accountXpub = resolveAccountXpub(db, defaultAccountXpub);
     const { address, recycled } = issueAddress(db, {
-      accountXpub,
+      receiveDescriptor: resolveReceiveDescriptor(db, defaultAccountXpub),
       rpc,
       network,
     });
@@ -259,7 +425,7 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
   /** Dev/demo: simulate a donation on the rail the amount would actually use. */
   app.post("/api/demo/simulate", async (req, reply) => {
     if (!demoToolsEnabled) {
-      return reply.code(403).send({ error: "Simulate is disabled on signet" });
+      return reply.code(403).send({ error: "Simulate is disabled on public test networks" });
     }
     const parsed = simulateSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
@@ -307,7 +473,7 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
     let address = parsed.data.address;
     if (!address) {
       const issued = issueAddress(db, {
-        accountXpub: resolveAccountXpub(db, defaultAccountXpub),
+        receiveDescriptor: resolveReceiveDescriptor(db, defaultAccountXpub),
         rpc,
         network,
       });
@@ -334,7 +500,7 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
 
   app.post("/api/demo/poll", async (_req, reply) => {
     if (!demoToolsEnabled) {
-      return reply.code(403).send({ error: "Demo poll is disabled on signet" });
+      return reply.code(403).send({ error: "Demo poll is disabled on public test networks" });
     }
     const result = await pollOnce(db, rpc, rateProvider);
     return { ok: true, ...result };
@@ -346,7 +512,7 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
     return {
       ok: true,
       message:
-        network === "signet"
+        isPublicNetwork(network)
           ? "Ledger and address registry cleared."
           : "Demo ledger and address registry cleared.",
       settings: settingsResponse(db, network, defaultAccountXpub),

@@ -15,9 +15,9 @@ export const REGTEST_NETWORK: NetworkParams = {
 
 /**
  * Network names Harbor derives for.
- * Signet shares testnet address params (`tb1…`).
+ * Signet and Testnet4 share testnet address params (`tb1…`).
  */
-export type NetworkName = "mainnet" | "testnet" | "regtest" | "signet";
+export type NetworkName = "mainnet" | "testnet" | "regtest" | "signet" | "testnet4";
 
 const XPUB_VERSION = new Uint8Array([0x04, 0x88, 0xb2, 0x1e]);
 const b58c = base58check(sha256);
@@ -28,6 +28,7 @@ function networkFor(name: NetworkName): NetworkParams {
       return NETWORK;
     case "testnet":
     case "signet":
+    case "testnet4":
       return TEST_NETWORK;
     case "regtest":
       return REGTEST_NETWORK;
@@ -129,7 +130,10 @@ export function isValidAddress(address: string, networkName: NetworkName = "regt
 }
 
 /** Map Harbor runtime network to derivation network (mock uses regtest params). */
-export function derivationNetworkFor(harborNetwork: "mock" | "regtest" | "signet"): NetworkName {
+export function derivationNetworkFor(
+  harborNetwork: "mock" | "regtest" | "signet" | "testnet4",
+): NetworkName {
   if (harborNetwork === "signet") return "signet";
+  if (harborNetwork === "testnet4") return "testnet4";
   return "regtest";
 }

@@ -1,7 +1,14 @@
+import type {
+  WalletCandidate,
+  WalletPreview,
+  WalletVerification,
+} from "./wallet/types";
+
 export const DEFAULT_THRESHOLD = 500_000;
 export const SIGNET_EXPLORER_TX = "https://mempool.space/signet/tx";
+export const TESTNET4_EXPLORER_TX = "https://mempool.space/testnet4/tx";
 
-export type HarborNetwork = "mock" | "regtest" | "signet";
+export type HarborNetwork = "mock" | "regtest" | "signet" | "testnet4";
 
 export type DonateResponse =
   | {
@@ -42,6 +49,12 @@ export type SettingsPayload = {
   btcUsdRate: number;
   accountXpub: string | null;
   network: HarborNetwork;
+  walletConnected: boolean;
+  walletSource: WalletCandidate["source"] | "legacy" | null;
+  walletFingerprint: string | null;
+  walletAccountPath: string | null;
+  walletConnectedAt: string | null;
+  usingDemoWallet: boolean;
   usingDemoXpub: boolean;
   previewAddresses: string[];
 };
@@ -67,6 +80,17 @@ export type HealthPayload = {
   demoTools: boolean;
 };
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
@@ -75,13 +99,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const text = await res.text();
     let message = text || `HTTP ${res.status}`;
+    let code: string | undefined;
     try {
-      const json = JSON.parse(text) as { error?: string };
+      const json = JSON.parse(text) as { error?: string; code?: string };
       if (json.error) message = json.error;
+      code = json.code;
     } catch {
       /* keep text */
     }
-    throw new Error(message);
+    throw new ApiError(message, res.status, code);
   }
   if (res.headers.get("content-type")?.includes("application/json")) {
     return res.json() as Promise<T>;
@@ -119,6 +145,24 @@ export function updateAccountXpub(accountXpub: string | null, resetAddresses = t
   return api<SettingsPayload>("/api/settings", {
     method: "PUT",
     body: JSON.stringify({ accountXpub, resetAddresses }),
+  });
+}
+
+export function previewWallet(candidate: WalletCandidate) {
+  return api<WalletPreview>("/api/wallet/preview", {
+    method: "POST",
+    body: JSON.stringify(candidate),
+  });
+}
+
+export function saveWallet(
+  candidate: WalletCandidate,
+  verification: WalletVerification,
+  confirmWalletChange = false,
+) {
+  return api<SettingsPayload>("/api/wallet", {
+    method: "PUT",
+    body: JSON.stringify({ ...candidate, verification, confirmWalletChange }),
   });
 }
 
@@ -160,8 +204,9 @@ export function resetDemo() {
 }
 
 export function explorerTxUrl(network: HarborNetwork, txid: string): string | null {
-  if (network !== "signet") return null;
-  return `${SIGNET_EXPLORER_TX}/${txid}`;
+  if (network === "signet") return `${SIGNET_EXPLORER_TX}/${txid}`;
+  if (network === "testnet4") return `${TESTNET4_EXPLORER_TX}/${txid}`;
+  return null;
 }
 
 export function formatSats(n: number): string {

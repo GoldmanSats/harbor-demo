@@ -12,6 +12,11 @@ import {
   type PaymentRail,
   type Settings,
 } from "../config.js";
+import {
+  validateWalletCandidate,
+  type ValidatedWallet,
+  type WalletSource,
+} from "../bitcoin/descriptor.js";
 
 export type Db = DatabaseSync;
 
@@ -65,6 +70,23 @@ function migrate(db: Db): void {
     set.run("threshold_sats", String(DEFAULT_THRESHOLD_SATS));
     set.run("btc_usd_rate", String(MOCK_BTC_USD));
   }
+
+  // Slice 3B migration: convert the legacy account xpub to Harbor's canonical
+  // watch-only descriptor without touching the address registry or ledger.
+  const legacyXpub = get.get("account_xpub") as { value: string } | undefined;
+  const descriptor = get.get("wallet_descriptor") as { value: string } | undefined;
+  if (legacyXpub?.value && !descriptor?.value) {
+    try {
+      const wallet = validateWalletCandidate(
+        { accountPublicKey: legacyXpub.value, source: "legacy" },
+        "regtest",
+      );
+      writeWalletSettings(db, wallet, new Date().toISOString());
+    } catch {
+      // Preserve an invalid legacy value for compatibility; API validation will
+      // surface the actionable error if the organization reconnects it.
+    }
+  }
 }
 
 function mapIssued(row: Record<string, unknown>): IssuedAddress {
@@ -98,10 +120,22 @@ export function getSettings(db: Db): Settings {
   const threshold = get.get("threshold_sats");
   const rate = get.get("btc_usd_rate");
   const xpub = get.get("account_xpub") as { value: string } | undefined;
+  const descriptor = get.get("wallet_descriptor") as { value: string } | undefined;
+  const changeDescriptor = get.get("wallet_change_descriptor") as { value: string } | undefined;
+  const source = get.get("wallet_source") as { value: string } | undefined;
+  const fingerprint = get.get("wallet_fingerprint") as { value: string } | undefined;
+  const accountPath = get.get("wallet_account_path") as { value: string } | undefined;
+  const connectedAt = get.get("wallet_connected_at") as { value: string } | undefined;
   return {
     thresholdSats: Number((threshold as { value: string } | undefined)?.value ?? DEFAULT_THRESHOLD_SATS),
     btcUsdRate: Number((rate as { value: string } | undefined)?.value ?? MOCK_BTC_USD),
     accountXpub: xpub?.value && xpub.value.length > 0 ? xpub.value : null,
+    walletDescriptor: descriptor?.value || null,
+    walletChangeDescriptor: changeDescriptor?.value || null,
+    walletSource: (source?.value as WalletSource | undefined) || null,
+    walletFingerprint: fingerprint?.value || null,
+    walletAccountPath: accountPath?.value || null,
+    walletConnectedAt: connectedAt?.value || null,
   };
 }
 
@@ -126,6 +160,50 @@ export function setAccountXpub(db: Db, accountXpub: string | null): Settings {
   db.prepare(
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   ).run("account_xpub", value);
+  return getSettings(db);
+}
+
+function setSetting(db: Db, key: string, value: string): void {
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run(key, value);
+}
+
+function writeWalletSettings(db: Db, wallet: ValidatedWallet, connectedAt: string): void {
+  setSetting(db, "wallet_descriptor", wallet.descriptor);
+  setSetting(db, "wallet_change_descriptor", wallet.changeDescriptor ?? "");
+  setSetting(db, "wallet_source", wallet.source);
+  setSetting(db, "wallet_fingerprint", wallet.fingerprint);
+  setSetting(db, "wallet_account_path", wallet.accountPath);
+  setSetting(db, "wallet_connected_at", connectedAt);
+  // Slice Three compatibility alias. Normal UI never displays this value.
+  setSetting(db, "account_xpub", wallet.accountXpub);
+}
+
+export function saveWallet(db: Db, wallet: ValidatedWallet, connectedAt = new Date()): Settings {
+  db.exec("BEGIN IMMEDIATE;");
+  try {
+    writeWalletSettings(db, wallet, connectedAt.toISOString());
+    db.exec("COMMIT;");
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
+  }
+  return getSettings(db);
+}
+
+export function clearWallet(db: Db): Settings {
+  for (const key of [
+    "wallet_descriptor",
+    "wallet_change_descriptor",
+    "wallet_source",
+    "wallet_fingerprint",
+    "wallet_account_path",
+    "wallet_connected_at",
+    "account_xpub",
+  ]) {
+    setSetting(db, key, "");
+  }
   return getSettings(db);
 }
 
@@ -321,7 +399,5 @@ export function resetDemoData(db: Db): void {
   db.prepare(
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   ).run("btc_usd_rate", String(MOCK_BTC_USD));
-  db.prepare(
-    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-  ).run("account_xpub", "");
+  clearWallet(db);
 }

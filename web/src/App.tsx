@@ -23,8 +23,8 @@ export function App() {
 
   async function onReset() {
     const msg =
-      network === "signet"
-        ? "Clear all donations, issued addresses, and the saved xpub?"
+      network === "signet" || network === "testnet4"
+        ? "Clear all donations, issued addresses, and the connected wallet?"
         : "Clear all demo donations and issued addresses?";
     if (!window.confirm(msg)) return;
     setResetting(true);
@@ -40,19 +40,20 @@ export function App() {
     }
   }
 
-  const isSignet = network === "signet";
+  const isPublicTestnet = network === "signet" || network === "testnet4";
+  const networkLabel = network === "testnet4" ? "Testnet4" : "Signet";
 
   return (
     <div className="app-shell">
-      <div className={`demo-banner ${isSignet ? "signet" : ""}`} role="status">
-        {isSignet
-          ? "Signet — real testnet coins. Funds only your wallet can spend."
+      <div className={`demo-banner ${isPublicTestnet ? "signet" : ""}`} role="status">
+        {isPublicTestnet
+          ? `${networkLabel} — real testnet coins. Funds only your wallet can spend.`
           : "Simulated network — not real bitcoin. Fake money only."}
       </div>
       <nav className="nav">
         <div className="brand">Harbor</div>
-        <span className={`pill ${isSignet ? "accent" : "warning"}`}>
-          {isSignet ? "Signet" : "Simulated"}
+        <span className={`pill ${isPublicTestnet ? "accent" : "warning"}`}>
+          {isPublicTestnet ? networkLabel : "Simulated"}
         </span>
         <NavLink to="/donate" className={({ isActive }) => (isActive ? "active" : "")}>
           Donate
@@ -67,7 +68,7 @@ export function App() {
           disabled={resetting}
           onClick={onReset}
         >
-          {isSignet ? "Reset ledger" : "Reset demo"}
+          {isPublicTestnet ? "Reset ledger" : "Reset demo"}
         </button>
       </nav>
       {resetMsg && (
