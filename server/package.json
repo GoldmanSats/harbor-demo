@@ -13,6 +13,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@bitcoinerlab/descriptors": "^3.1.7",
     "@fastify/cors": "^11.0.0",
     "@fastify/static": "^9.3.0",
     "@noble/hashes": "^1.8.0",

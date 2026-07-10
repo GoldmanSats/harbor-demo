@@ -24,12 +24,13 @@ export type EsploraTx = {
 
 export type EsploraBitcoinRpcOptions = {
   baseUrl?: string;
+  chain?: "signet" | "testnet4";
   getWatchedAddresses: () => string[] | Promise<string[]>;
   fetchImpl?: FetchLike;
 };
 
 /**
- * Esplora-backed BitcoinRpc for public signet (mempool.space).
+ * Esplora-backed BitcoinRpc for public test networks (mempool.space).
  * Implements listSinceBlock by polling /address/:addr/txs for watched addresses.
  */
 export class EsploraBitcoinRpc implements BitcoinRpc {
@@ -37,9 +38,11 @@ export class EsploraBitcoinRpc implements BitcoinRpc {
   private readonly baseUrl: string;
   private readonly getWatchedAddresses: () => string[] | Promise<string[]>;
   private readonly fetchImpl: FetchLike;
+  private readonly chain: "signet" | "testnet4";
 
   constructor(opts: EsploraBitcoinRpcOptions) {
     this.baseUrl = (opts.baseUrl ?? SIGNET_ESPLORA_BASE).replace(/\/$/, "");
+    this.chain = opts.chain ?? "signet";
     this.getWatchedAddresses = opts.getWatchedAddresses;
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
@@ -66,7 +69,7 @@ export class EsploraBitcoinRpc implements BitcoinRpc {
 
   async getBlockchainInfo() {
     const tip = await this.getJson<number>("/blocks/tip/height");
-    return { chain: "signet", blocks: tip };
+    return { chain: this.chain, blocks: tip };
   }
 
   async listSinceBlock(_blockHash?: string): Promise<ListSinceBlockResult> {
@@ -122,15 +125,15 @@ export class EsploraBitcoinRpc implements BitcoinRpc {
   }
 
   async sendToAddress(): Promise<string> {
-    throw new Error("EsploraBitcoinRpc: sendToAddress is not supported on signet");
+    throw new Error("EsploraBitcoinRpc: sendToAddress is not supported on public test networks");
   }
 
   async generateToAddress(): Promise<string[]> {
-    throw new Error("EsploraBitcoinRpc: generateToAddress is not supported on signet");
+    throw new Error("EsploraBitcoinRpc: generateToAddress is not supported on public test networks");
   }
 
   async getNewAddress(): Promise<string> {
-    throw new Error("EsploraBitcoinRpc: getNewAddress is not supported on signet");
+    throw new Error("EsploraBitcoinRpc: getNewAddress is not supported on public test networks");
   }
 
   async createWallet(): Promise<unknown> {

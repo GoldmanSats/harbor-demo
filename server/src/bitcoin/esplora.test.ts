@@ -81,6 +81,17 @@ describe("EsploraBitcoinRpc", () => {
     const info = await rpc.getBlockchainInfo();
     expect(info).toEqual({ chain: "signet", blocks: 42 });
   });
+
+  it("keeps Testnet4 as a distinct chain label", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(42));
+    const rpc = new EsploraBitcoinRpc({
+      baseUrl: "https://example.test/testnet4/api",
+      chain: "testnet4",
+      getWatchedAddresses: () => [],
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    await expect(rpc.getBlockchainInfo()).resolves.toEqual({ chain: "testnet4", blocks: 42 });
+  });
 });
 
 describe("LiveRateProvider", () => {

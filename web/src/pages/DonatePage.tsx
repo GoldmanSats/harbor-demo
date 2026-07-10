@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { QrImage } from "../components/QrImage";
 import {
+  ApiError,
   DEFAULT_THRESHOLD,
   formatSats,
   requestPayment,
@@ -21,6 +22,7 @@ export function DonatePage({
   const [amountStr, setAmountStr] = useState("50000");
   const [payment, setPayment] = useState<DonateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [walletRequired, setWalletRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [simMsg, setSimMsg] = useState<string | null>(null);
 
@@ -38,11 +40,19 @@ export function DonatePage({
     const t = setTimeout(async () => {
       setLoading(true);
       setError(null);
+      setWalletRequired(false);
       try {
         const res = await requestPayment(amount);
         if (!cancelled) setPayment(res);
       } catch (err) {
-        if (!cancelled) setError((err as Error).message);
+        if (!cancelled) {
+          if (err instanceof ApiError && err.status === 409 && err.code === "wallet_required") {
+            setWalletRequired(true);
+            setError(null);
+          } else {
+            setError((err as Error).message);
+          }
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -80,7 +90,11 @@ export function DonatePage({
         One permanent identifier. Enter an amount — Bitcoin is preferred. Below{" "}
         {formatSats(threshold)} you&apos;ll see Lightning (preview); at or above,
         a fresh on-chain address that lands in cold storage
-        {network === "signet" ? " (signet)." : "."}
+        {network === "signet"
+          ? " (Signet)."
+          : network === "testnet4"
+            ? " (Testnet4)."
+            : "."}
       </p>
 
       <div className="card">
@@ -109,6 +123,12 @@ export function DonatePage({
 
         {loading && <p className="muted">Preparing payment…</p>}
         {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
+        {walletRequired && (
+          <p className="callout" role="alert">
+            On-chain donations are not available until the organization{" "}
+            <a href="/dashboard">connects its watch-only wallet on the dashboard</a>.
+          </p>
+        )}
 
         {payment?.rail === "lightning" && (
           <div className="card watermark" style={{ background: "var(--surface-2)" }}>

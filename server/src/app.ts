@@ -4,19 +4,21 @@ import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
-import { getActiveIssuedAddresses, openDatabase } from "./db/schema.js";
+import { getActiveIssuedAddresses, getSettings, openDatabase } from "./db/schema.js";
 import { registerRoutes } from "./routes/api.js";
 import { HttpBitcoinRpc } from "./bitcoin/rpc.js";
 import { MockBitcoinRpc } from "./bitcoin/mock-rpc.js";
 import { EsploraBitcoinRpc } from "./bitcoin/esplora.js";
 import type { BitcoinRpc } from "./bitcoin/rpc.js";
 import { LiveRateProvider } from "./bitcoin/live-rate.js";
+import { descriptorFromAccountPublicKey } from "./bitcoin/descriptor.js";
 import { MockRateProvider, startPoller } from "./services/detection.js";
 import type { RateProvider } from "./services/detection.js";
 import {
   DEMO_ACCOUNT_XPUB,
   MOCK_BTC_USD,
   SIGNET_ESPLORA_BASE,
+  TESTNET4_ESPLORA_BASE,
   pollIntervalFor,
   resolveHarborNetwork,
   type HarborNetwork,
@@ -63,12 +65,17 @@ function resolveWebDist(): string | null {
 }
 
 function resolveNetwork(): HarborNetwork {
-  // Explicit HARBOR_NETWORK always wins (including signet on hosted).
+  // Explicit HARBOR_NETWORK always wins (including public testnets on hosted).
   const explicit = (process.env.HARBOR_NETWORK ?? "").toLowerCase();
-  if (explicit === "signet" || explicit === "regtest" || explicit === "mock") {
+  if (
+    explicit === "signet" ||
+    explicit === "testnet4" ||
+    explicit === "regtest" ||
+    explicit === "mock"
+  ) {
     return explicit;
   }
-  // Hosted demos default to mock unless signet was requested above.
+  // Hosted demos default to mock unless a public testnet was requested above.
   if (isHostedMode()) return "mock";
   return resolveHarborNetwork();
 }
@@ -97,7 +104,7 @@ export async function createApp(options: {
   const rpc = options.rpc ?? (await connectBitcoin(network, db));
   const rateProvider =
     options.rateProvider ??
-    (network === "signet"
+    (network === "signet" || network === "testnet4"
       ? new LiveRateProvider({
           fallbackRate: Number(process.env.HARBOR_BTC_USD ?? MOCK_BTC_USD),
         })
@@ -167,10 +174,12 @@ async function connectBitcoin(
   network: HarborNetwork,
   db: ReturnType<typeof openDatabase>,
 ): Promise<BitcoinRpc> {
-  if (network === "signet") {
-    console.log("[harbor] Using Esplora (signet) at", SIGNET_ESPLORA_BASE);
+  if (network === "signet" || network === "testnet4") {
+    const defaultBase = network === "testnet4" ? TESTNET4_ESPLORA_BASE : SIGNET_ESPLORA_BASE;
+    console.log(`[harbor] Using Esplora (${network}) at`, defaultBase);
     return new EsploraBitcoinRpc({
-      baseUrl: process.env.HARBOR_ESPLORA_URL ?? SIGNET_ESPLORA_BASE,
+      baseUrl: process.env.HARBOR_ESPLORA_URL ?? defaultBase,
+      chain: network,
       getWatchedAddresses: () => getActiveIssuedAddresses(db).map((a) => a.address),
     });
   }
@@ -200,7 +209,12 @@ async function connectBitcoin(
   try {
     await http.getBlockchainInfo();
     console.log("[harbor] Connected to Bitcoin Core at", url);
-    await ensureWatchOnlyWallet(http);
+    const receiveDescriptor =
+      getSettings(db).walletDescriptor ??
+      descriptorFromAccountPublicKey({
+        accountPublicKey: process.env.HARBOR_XPUB ?? DEMO_ACCOUNT_XPUB,
+      });
+    await ensureWatchOnlyWallet(http, receiveDescriptor);
     return http.withWallet("harbor-watch");
   } catch (err) {
     if (mode === "regtest" || network === "regtest") throw err;
@@ -212,7 +226,7 @@ async function connectBitcoin(
   }
 }
 
-async function ensureWatchOnlyWallet(rpc: HttpBitcoinRpc): Promise<void> {
+async function ensureWatchOnlyWallet(rpc: HttpBitcoinRpc, receiveDescriptor: string): Promise<void> {
   const walletName = "harbor-watch";
   try {
     await rpc.loadWallet(walletName);
@@ -229,13 +243,13 @@ async function ensureWatchOnlyWallet(rpc: HttpBitcoinRpc): Promise<void> {
   }
 
   const walletRpc = rpc.withWallet(walletName);
-  const xpub = process.env.HARBOR_XPUB ?? DEMO_ACCOUNT_XPUB;
-  const desc = `tr(${xpub}/0/*)`;
   try {
-    const info = await walletRpc.getDescriptorInfo(desc);
+    const info = await walletRpc.getDescriptorInfo(receiveDescriptor);
     await walletRpc.importDescriptors([
       {
-        desc: `${desc}#${info.checksum}`,
+        desc: receiveDescriptor.includes("#")
+          ? receiveDescriptor
+          : `${receiveDescriptor}#${info.checksum}`,
         timestamp: "now",
         active: true,
         range: [0, 1000],
