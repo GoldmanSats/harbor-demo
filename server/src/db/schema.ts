@@ -409,13 +409,26 @@ export function donationSummary(db: Db): {
 
 /** Clear donation ledger and address registry; restore default settings. */
 export function resetDemoData(db: Db): void {
-  db.exec("DELETE FROM donations;");
-  db.exec("DELETE FROM issued_addresses;");
-  db.prepare(
-    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-  ).run("threshold_sats", String(DEFAULT_THRESHOLD_SATS));
-  db.prepare(
-    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-  ).run("btc_usd_rate", String(MOCK_BTC_USD));
-  clearWallet(db);
+  db.exec("BEGIN IMMEDIATE;");
+  try {
+    db.exec("DELETE FROM donations;");
+    db.exec("DELETE FROM issued_addresses;");
+    setSetting(db, "threshold_sats", String(DEFAULT_THRESHOLD_SATS));
+    setSetting(db, "btc_usd_rate", String(MOCK_BTC_USD));
+    for (const key of [
+      "wallet_descriptor",
+      "wallet_change_descriptor",
+      "wallet_source",
+      "wallet_fingerprint",
+      "wallet_account_path",
+      "wallet_connected_at",
+      "account_xpub",
+    ]) {
+      setSetting(db, key, "");
+    }
+    db.exec("COMMIT;");
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
+  }
 }

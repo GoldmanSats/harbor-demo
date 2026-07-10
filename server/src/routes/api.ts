@@ -487,15 +487,15 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps): Promi
     return { ok: true, ...result };
   });
 
-  /** Wipe ledger + registry so visitors / orgs can start fresh. */
-  app.post("/api/demo/reset", async () => {
+  /** Wipe ledger + registry so visitors can start fresh on the mock demo. */
+  app.post("/api/demo/reset", async (_req, reply) => {
+    if (!demoToolsEnabled) {
+      return reply.code(403).send({ error: "Demo reset is disabled on public test networks" });
+    }
     resetDemoData(db);
     return {
       ok: true,
-      message:
-        isPublicNetwork(network)
-          ? "Ledger and address registry cleared."
-          : "Demo ledger and address registry cleared.",
+      message: "Demo ledger and address registry cleared.",
       settings: settingsResponse(db, network, defaultAccountXpub),
     };
   });

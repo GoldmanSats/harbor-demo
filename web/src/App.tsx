@@ -22,11 +22,7 @@ export function App() {
   }, []);
 
   async function onReset() {
-    const msg =
-      network === "signet" || network === "testnet4"
-        ? "Clear all donations, issued addresses, and the connected wallet?"
-        : "Clear all demo donations and issued addresses?";
-    if (!window.confirm(msg)) return;
+    if (!window.confirm("Clear all demo donations and issued addresses?")) return;
     setResetting(true);
     setResetMsg(null);
     try {
@@ -61,15 +57,17 @@ export function App() {
         <NavLink to="/dashboard" className={({ isActive }) => (isActive ? "active" : "")}>
           Dashboard
         </NavLink>
-        <button
-          type="button"
-          className="btn secondary"
-          style={{ marginLeft: "auto", padding: "6px 12px", fontSize: "0.85rem" }}
-          disabled={resetting}
-          onClick={onReset}
-        >
-          {isPublicTestnet ? "Reset ledger" : "Reset demo"}
-        </button>
+        {demoTools && (
+          <button
+            type="button"
+            className="btn secondary"
+            style={{ marginLeft: "auto", padding: "6px 12px", fontSize: "0.85rem" }}
+            disabled={resetting}
+            onClick={onReset}
+          >
+            Reset demo
+          </button>
+        )}
       </nav>
       {resetMsg && (
         <p className="callout" style={{ marginTop: 0 }}>

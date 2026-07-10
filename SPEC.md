@@ -95,8 +95,9 @@ Hardware-wallet transaction signing, PSBT composer, real Lightning/Fedimint/Cash
 
 ### A9 — Demo reset
 
-1. `POST /api/demo/reset` clears donations and issued addresses and restores default settings.
-2. UI exposes a **Reset demo** control and a visible simulated-network banner.
+1. When demo tools are enabled (mock/regtest), `POST /api/demo/reset` clears donations, issued addresses, and connected-wallet settings and restores defaults in a single transaction.
+2. UI exposes a **Reset demo** control only when demo tools are enabled, plus a visible simulated-network banner.
+3. When demo tools are disabled (`demoTools: false` on Signet/Testnet4), `POST /api/demo/reset` returns HTTP 403 and the Reset control is hidden.
 
 ## Slice Three addenda (signet + xpub onboarding)
 
@@ -114,7 +115,7 @@ Hardware-wallet transaction signing, PSBT composer, real Lightning/Fedimint/Cash
 2. A real (or fixture-stubbed) transaction paying a watched address with `amount_sats >= THRESHOLD_SATS` appears as `pending` when unconfirmed (`confirmations: 0`) and becomes `confirmed` once the tip implies `confirmations >= 1`.
 3. Fiat-at-receipt is set from the live (or cached/fallback) BTC/USD rate at first sight and never restated.
 4. Under-threshold on-chain amounts are `quarantined` and stay quarantined.
-5. `/api/health` exposes `network: "signet"`; simulate/dev tools are disabled (`demoTools: false`).
+5. `/api/health` exposes `network: "signet"`; simulate, poll, and reset demo tools are disabled (`demoTools: false`).
 6. Donation txids link to `https://mempool.space/signet/tx/:txid` in the UI.
 7. Unit/integration coverage uses recorded Esplora JSON fixtures — **no live network in CI**.
 
@@ -159,7 +160,7 @@ Hardware-wallet transaction signing, PSBT composer, real Lightning/Fedimint/Cash
 ### A14 — Testnet4
 
 1. `HARBOR_NETWORK=testnet4` is a distinct Harbor network using test-network key/address encoding, `https://mempool.space/testnet4/api`, public-network polling, and the live-rate provider. It overrides hosted mock defaults when explicit; hosted deployments remain mock by default.
-2. `/api/health` reports `network: "testnet4"` and Esplora reports chain `testnet4`. Simulate/dev mutation tools are disabled.
+2. `/api/health` reports `network: "testnet4"` and Esplora reports chain `testnet4`. Simulate, poll, and reset demo tools are disabled.
 3. Testnet4 on-chain issuance returns HTTP 409 until a non-demo watch-only wallet is connected, matching Signet safety behavior.
 4. Testnet4 transactions link to `https://mempool.space/testnet4/tx/:txid`; dashboard and donor UI show a distinct Testnet4 badge and explanatory copy.
 5. Fixture-driven tests cover pending-to-confirmed Testnet4 detection with no live HTTP in CI, while mock, regtest, and Signet behavior remain green.

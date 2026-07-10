@@ -143,7 +143,7 @@ describe("slice one integration", () => {
     expect(reg.json().addresses.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("resets demo ledger and registry", async () => {
+  it("resets demo ledger and registry when demo tools are enabled", async () => {
     await harbor.app.inject({
       method: "POST",
       url: "/api/demo/simulate",
@@ -154,10 +154,13 @@ describe("slice one integration", () => {
     const reset = await harbor.app.inject({ method: "POST", url: "/api/demo/reset" });
     expect(reset.statusCode).toBe(200);
     expect(reset.json().ok).toBe(true);
+    expect(reset.json().message).toMatch(/Demo ledger and address registry cleared/i);
     expect(listDonations(harbor.db)).toHaveLength(0);
 
     const reg = await harbor.app.inject({ method: "GET", url: "/api/registry/export" });
     expect(reg.json().addresses).toHaveLength(0);
+    expect(reset.json().settings.walletConnected).toBe(false);
+    expect(reset.json().settings.thresholdSats).toBe(500_000);
   });
 
   it("exposes network on health", async () => {
@@ -604,6 +607,10 @@ describe("slice three signet wiring", () => {
       payload: { amountSats: 600_000 },
     });
     expect(sim.statusCode).toBe(403);
+
+    const reset = await harbor.app.inject({ method: "POST", url: "/api/demo/reset" });
+    expect(reset.statusCode).toBe(403);
+    expect(reset.json().error).toMatch(/Demo reset is disabled/i);
   });
 
   it.each(["trezor", "ledger"] as const)(
@@ -800,6 +807,11 @@ describe("slice 3B Testnet4 wiring", () => {
       confirmations: 1,
       fiatUsdAtReceipt: 750,
     });
+
+    const reset = await harbor.app.inject({ method: "POST", url: "/api/demo/reset" });
+    expect(reset.statusCode).toBe(403);
+    expect(reset.json().error).toMatch(/Demo reset is disabled/i);
+    expect(listDonations(harbor.db)).toHaveLength(1);
   });
 });
 
